@@ -5266,8 +5266,11 @@ struct Gateway {
         });
 
         server.Post("/api/workspaces/save", [&](const httplib::Request& req, httplib::Response& res) {
-            const auto path = data / "workspace-store" / "tsturiale" / "native-last-save.json";
-            const bool ok = write_text(path, req.body);
+            const auto workspace_dir = data / "workspace-store" / "tsturiale";
+            const auto audit_path = workspace_dir / "native-last-save.json";
+            const auto latest_path = workspace_dir / "latest.json";
+            const auto workspace = get_json_member(req.body, "workspace").value_or(req.body);
+            const bool ok = write_text_atomic(audit_path, req.body) && write_text_atomic(latest_path, workspace);
             send_json(res, ok ? "{\"ok\":true,\"runtime\":\"cpp\"}" : "{\"ok\":false,\"detail\":\"workspace save failed\"}", ok ? 200 : 500);
         });
 

@@ -377,6 +377,7 @@ type SavedWorkspace = {
   algoManager?: AlgoManagerWorkspaceState
   selectedProvider?: ProviderKey
   selectedSymbol?: string
+  desktopToolbarBounds?: FloatingWindowBounds
   updatedAt: number
   recoveredFrom?: string
   serverFile?: string
@@ -10102,13 +10103,6 @@ function primaryDesktopSize(): { width: number; height: number } {
   }
 }
 
-function boundsAreVisibleOnPrimary(bounds: FloatingWindowBounds, screenSize = primaryDesktopSize()): boolean {
-  return bounds.x >= -20
-    && bounds.y >= -20
-    && bounds.x < screenSize.width - 120
-    && bounds.y < screenSize.height - 90
-}
-
 function packDesktopBounds(item: WorkspaceWindow, index: number, screenSize = primaryDesktopSize()): FloatingWindowBounds {
   const source = readDesktopBounds(item)
   const x = 18 + (index % 6) * 42
@@ -10125,11 +10119,9 @@ function prepareDesktopLaunchWindows(workspace: SavedWorkspace): DesktopLaunchWi
   const windows = workspace.windows
     .filter(item => !isRemovedWindowKind(item.kind))
     .sort((a, b) => a.z - b.z)
-  const screenSize = primaryDesktopSize()
-  const shouldPack = windows.some(item => !boundsAreVisibleOnPrimary(readDesktopBounds(item), screenSize))
-  return windows.map((item, index) => ({
+  return windows.map(item => ({
     item,
-    bounds: shouldPack ? packDesktopBounds(item, index, screenSize) : readDesktopBounds(item),
+    bounds: readDesktopBounds(item),
   }))
 }
 
@@ -10167,9 +10159,11 @@ function useDesktopWindowDocumentTitle(item: WorkspaceWindow) {
 }
 
 function currentDesktopWindowBounds(): FloatingWindowBounds {
+  const screenX = Number((window as unknown as { screenX?: number; screenLeft?: number }).screenX ?? (window as unknown as { screenLeft?: number }).screenLeft ?? 0)
+  const screenY = Number((window as unknown as { screenY?: number; screenTop?: number }).screenY ?? (window as unknown as { screenTop?: number }).screenTop ?? 0)
   return {
-    x: Math.max(0, Math.round(window.screenX || window.screenLeft || 0)),
-    y: Math.max(0, Math.round(window.screenY || window.screenTop || 0)),
+    x: Math.round(Number.isFinite(screenX) ? screenX : 0),
+    y: Math.round(Number.isFinite(screenY) ? screenY : 0),
     w: Math.max(320, Math.round(window.outerWidth || window.innerWidth || 520)),
     h: Math.max(220, Math.round(window.outerHeight || window.innerHeight || 360)),
   }
@@ -10263,7 +10257,7 @@ export function WorkspaceDesktopWindow() {
   )
 }
 
-function collectDesktopWindowSnapshots(timeoutMs = 700): Promise<WorkspaceWindow[]> {
+function collectDesktopWindowSnapshots(timeoutMs = 1600): Promise<WorkspaceWindow[]> {
   return new Promise(resolve => {
     const channel = new BroadcastChannel(DESKTOP_WORKSPACE_CHANNEL)
     const requestId = `snapshot-${epochMs()}-${Math.random().toString(36).slice(2)}`
@@ -10385,13 +10379,21 @@ export function OpenFinDesktopToolbar() {
     }
   }, [])
 
-  const saveDesktopWorkspace = async () => {
+  const persistDesktopWorkspace = async (reason: string) => {
     setStatus('Saving...')
     const snapshots = await collectDesktopWindowSnapshots()
-    const next = mergeDesktopSnapshots(workspace, snapshots)
+    const next = {
+      ...mergeDesktopSnapshots(workspace, snapshots),
+      desktopToolbarBounds: currentDesktopWindowBounds(),
+    }
     cacheDesktopWorkspace(next)
     setWorkspace(next)
-    const serverSaved = await saveWorkspaceServerSnapshot(next, 'desktop toolbar save default')
+    const serverSaved = await saveWorkspaceServerSnapshot(next, reason)
+    return { snapshots, serverSaved }
+  }
+
+  const saveDesktopWorkspace = async () => {
+    const { snapshots, serverSaved } = await persistDesktopWorkspace('desktop toolbar save default')
     setStatus(serverSaved ? `Saved ${snapshots.length} windows` : 'Saved locally; server pending')
   }
 
@@ -10444,6 +10446,8 @@ export function OpenFinDesktopToolbar() {
   }
 
   const logoutDesktop = async () => {
+    setStatus('Saving workspace before logout...')
+    await persistDesktopWorkspace('desktop toolbar logout save')
     setStatus('Logging out...')
     try {
       await ceriousFetch('/api/auth/logout', { method: 'POST' })
@@ -10456,6 +10460,8 @@ export function OpenFinDesktopToolbar() {
   const shutdownDesktop = async () => {
     const accepted = window.confirm('Shutdown Cerious services? Shutdown does not cancel working orders. Use CXL ALL or KILL ALL separately if needed.')
     if (!accepted) return
+    setStatus('Saving workspace before shutdown...')
+    await persistDesktopWorkspace('desktop toolbar shutdown save')
     setStatus('Shutdown requested')
     try {
       const response = await ceriousFetch('/api/system/shutdown', {
@@ -10537,17 +10543,18 @@ export function OpenFinDesktopLauncher() {
       const createWindow = fin.Window.create.bind(fin.Window)
       const icon = `${window.location.origin}/branding/cerious-logo.png`
       try {
+        const toolbarBounds = workspace.desktopToolbarBounds ?? { x: 20, y: 20, w: 620, h: 92 }
         const toolbarWindow = await createWindow({
           name: 'cerious-desktop-toolbar',
           url: desktopToolbarUrl(),
-          x: 20,
-          y: 20,
-          width: 620,
-          height: 92,
-          defaultLeft: 20,
-          defaultTop: 20,
-          defaultWidth: 620,
-          defaultHeight: 92,
+          x: Math.round(toolbarBounds.x),
+          y: Math.round(toolbarBounds.y),
+          width: Math.max(460, Math.round(toolbarBounds.w)),
+          height: Math.max(72, Math.round(toolbarBounds.h)),
+          defaultLeft: Math.round(toolbarBounds.x),
+          defaultTop: Math.round(toolbarBounds.y),
+          defaultWidth: Math.max(460, Math.round(toolbarBounds.w)),
+          defaultHeight: Math.max(72, Math.round(toolbarBounds.h)),
           minWidth: 460,
           minHeight: 72,
           frame: true,
@@ -10563,7 +10570,7 @@ export function OpenFinDesktopLauncher() {
             authority: 'server',
           },
         })
-        await showOpenFinWindow(toolbarWindow, { x: 20, y: 20, w: 620, h: 92 })
+        await showOpenFinWindow(toolbarWindow, toolbarBounds)
         let opened = 0
         let failed = 0
         for (const { item, bounds } of windows) {
