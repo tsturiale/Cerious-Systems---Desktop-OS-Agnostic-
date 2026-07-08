@@ -54,6 +54,8 @@ import { ceriousWsBase } from '../platform/transport'
 
 const ENABLE_LEGACY_BROWSER_WS = import.meta.env.VITE_CERIOUS_ENABLE_LEGACY_WS === 'true'
 
+type DesktopWindowState = 'normal' | 'minimized' | 'maximized'
+
 type WorkspaceWindow = {
   id: string
   kind: WorkspaceWindowKind
@@ -70,6 +72,7 @@ type WorkspaceWindow = {
   account?: string
   poppedOut?: boolean
   floatingBounds?: FloatingWindowBounds
+  desktopState?: DesktopWindowState
   chartSettings?: CeriousChartSettings
   depthLadderSettings?: DepthLadderSettings
 }
@@ -892,6 +895,7 @@ function normalizeWorkspace(raw: Partial<SavedWorkspace> | null | undefined): Sa
   const windows = ensureFuturesDepthLadderWindow(ensureLegacyChartWindows(raw.windows.filter(item => !isRemovedWindowKind(item.kind)))).map(item => ({
     ...item,
     provider: normalizeProviderKey(item.provider as ProviderKey | undefined),
+    desktopState: normalizeDesktopWindowState(item.desktopState),
     ...(item.kind === 'depthLadder' && item.depthLadderSettings
       ? { depthLadderSettings: normalizeDepthLadderSettings(item.depthLadderSettings) }
       : {}),
@@ -910,6 +914,7 @@ function normalizeWorkspace(raw: Partial<SavedWorkspace> | null | undefined): Sa
     algoManager: raw.algoManager ? normalizeAlgoManagerWorkspaceState(raw.algoManager) : undefined,
     selectedProvider: normalizeProviderKey(raw.selectedProvider),
     selectedSymbol: raw.selectedSymbol,
+    desktopToolbarBounds: raw.desktopToolbarBounds,
     updatedAt: Number(raw.updatedAt || epochMs()),
     recoveredFrom: raw.recoveredFrom,
     serverFile: raw.serverFile,
@@ -9962,7 +9967,7 @@ type OpenFinWindowOptions = {
   minHeight?: number
   frame?: boolean
   autoShow?: boolean
-  state?: 'normal' | 'minimized' | 'maximized'
+  state?: DesktopWindowState
   saveWindowState?: boolean
   showTaskbarIcon?: boolean
   waitForPageLoad?: boolean
@@ -9970,10 +9975,24 @@ type OpenFinWindowOptions = {
   customData?: Record<string, unknown>
 }
 
+type OpenFinWindowRef = {
+  hide?: () => Promise<void>
+  close?: () => Promise<void>
+  restore?: () => Promise<void>
+  show?: (force?: boolean) => Promise<void>
+  showAt?: (left: number, top: number, force?: boolean) => Promise<void>
+  setBounds?: (bounds: { left: number; top: number; width: number; height: number }) => Promise<void>
+  getBounds?: () => Promise<{ left?: number; top?: number; width?: number; height?: number }>
+  getState?: () => Promise<string>
+  minimize?: () => Promise<void>
+  maximize?: () => Promise<void>
+  setAsForeground?: () => Promise<void>
+}
+
 type OpenFinApi = {
   Window?: {
     create?: (options: OpenFinWindowOptions) => Promise<unknown>
-    getCurrentSync?: () => { hide?: () => Promise<void>; close?: () => Promise<void> }
+    getCurrentSync?: () => OpenFinWindowRef
   }
   Application?: {
     getCurrentSync?: () => { quit?: (force?: boolean) => Promise<void> }
@@ -10169,6 +10188,49 @@ function currentDesktopWindowBounds(): FloatingWindowBounds {
   }
 }
 
+function normalizeDesktopWindowState(value: unknown): DesktopWindowState {
+  return value === 'minimized' || value === 'maximized' ? value : 'normal'
+}
+
+function usableDesktopBounds(bounds: FloatingWindowBounds | null | undefined): bounds is FloatingWindowBounds {
+  if (!bounds) return false
+  return [bounds.x, bounds.y, bounds.w, bounds.h].every(Number.isFinite)
+    && bounds.w >= 120
+    && bounds.h >= 80
+    && Math.abs(bounds.x) < 100_000
+    && Math.abs(bounds.y) < 100_000
+}
+
+async function currentDesktopWindowSnapshot(previous: WorkspaceWindow): Promise<{ bounds: FloatingWindowBounds; state: DesktopWindowState }> {
+  const currentWindow = openFinApi()?.Window?.getCurrentSync?.()
+  const fallbackBounds = readDesktopBounds(previous)
+  let state = normalizeDesktopWindowState(previous.desktopState)
+  try {
+    if (currentWindow?.getState) state = normalizeDesktopWindowState(await currentWindow.getState())
+  } catch {
+    state = normalizeDesktopWindowState(previous.desktopState)
+  }
+
+  let bounds: FloatingWindowBounds | null = null
+  try {
+    const openFinBounds = await currentWindow?.getBounds?.()
+    if (openFinBounds) {
+      bounds = {
+        x: Math.round(Number(openFinBounds.left ?? fallbackBounds.x)),
+        y: Math.round(Number(openFinBounds.top ?? fallbackBounds.y)),
+        w: Math.round(Number(openFinBounds.width ?? fallbackBounds.w)),
+        h: Math.round(Number(openFinBounds.height ?? fallbackBounds.h)),
+      }
+    }
+  } catch {
+    bounds = null
+  }
+
+  if (!usableDesktopBounds(bounds) && state !== 'minimized') bounds = currentDesktopWindowBounds()
+  if (!usableDesktopBounds(bounds)) bounds = fallbackBounds
+  return { bounds, state }
+}
+
 export function WorkspaceDesktopWindow() {
   useMarketBootstrap()
   useCeriousTradingStateHydrator()
@@ -10185,10 +10247,10 @@ export function WorkspaceDesktopWindow() {
 
   useEffect(() => {
     const channel = new BroadcastChannel(DESKTOP_WORKSPACE_CHANNEL)
-    const handleMessage = (event: MessageEvent) => {
+    const handleMessage = async (event: MessageEvent) => {
       const message = event.data as { type?: string; requestId?: string }
       if (message.type !== 'snapshot-request' || !message.requestId) return
-      const bounds = currentDesktopWindowBounds()
+      const { bounds, state } = await currentDesktopWindowSnapshot(item)
       channel.postMessage({
         type: 'snapshot-response',
         requestId: message.requestId,
@@ -10199,6 +10261,7 @@ export function WorkspaceDesktopWindow() {
           w: bounds.w,
           h: bounds.h,
           floatingBounds: bounds,
+          desktopState: state,
           collapsed: false,
         } satisfies WorkspaceWindow,
       })
@@ -10257,7 +10320,7 @@ export function WorkspaceDesktopWindow() {
   )
 }
 
-function collectDesktopWindowSnapshots(timeoutMs = 1600): Promise<WorkspaceWindow[]> {
+function collectDesktopWindowSnapshots(timeoutMs = 2400): Promise<WorkspaceWindow[]> {
   return new Promise(resolve => {
     const channel = new BroadcastChannel(DESKTOP_WORKSPACE_CHANNEL)
     const requestId = `snapshot-${epochMs()}-${Math.random().toString(36).slice(2)}`
@@ -10321,6 +10384,7 @@ function defaultDesktopWindowForKind(kind: WorkspaceWindowKind, current: SavedWo
     symbol: defaultSymbolForWindowKind(kind, current.selectedSymbol ?? 'ES'),
     depthLadderSettings: kind === 'depthLadder' ? loadDepthLadderDefaultSettings() : undefined,
     floatingBounds: bounds,
+    desktopState: 'normal',
   }
 }
 
@@ -10336,15 +10400,9 @@ async function runOpenFinWindowCommand(command: (() => Promise<void>) | undefine
   }
 }
 
-async function showOpenFinWindow(windowRef: unknown, bounds?: Pick<FloatingWindowBounds, 'x' | 'y' | 'w' | 'h'>) {
+async function showOpenFinWindow(windowRef: unknown, bounds?: Pick<FloatingWindowBounds, 'x' | 'y' | 'w' | 'h'>, state: DesktopWindowState = 'normal') {
   if (!windowRef || typeof windowRef !== 'object') return
-  const api = windowRef as {
-    restore?: () => Promise<void>
-    show?: (force?: boolean) => Promise<void>
-    showAt?: (left: number, top: number, force?: boolean) => Promise<void>
-    setBounds?: (bounds: { left: number; top: number; width: number; height: number }) => Promise<void>
-    setAsForeground?: () => Promise<void>
-  }
+  const api = windowRef as OpenFinWindowRef
   if (bounds) {
     const compactWindow = bounds.h < 160
     await runOpenFinWindowCommand(() => api.setBounds?.({
@@ -10353,10 +10411,17 @@ async function showOpenFinWindow(windowRef: unknown, bounds?: Pick<FloatingWindo
         width: Math.max(compactWindow ? 420 : 320, Math.round(bounds.w)),
         height: Math.max(compactWindow ? 72 : 220, Math.round(bounds.h)),
       }) ?? Promise.resolve())
-    await runOpenFinWindowCommand(() => api.showAt?.(Math.round(bounds.x), Math.round(bounds.y), true) ?? Promise.resolve())
+    if (state !== 'minimized') {
+      await runOpenFinWindowCommand(() => api.showAt?.(Math.round(bounds.x), Math.round(bounds.y), true) ?? Promise.resolve())
+    }
+  }
+  if (state === 'minimized') {
+    await runOpenFinWindowCommand(() => api.minimize?.() ?? Promise.resolve())
+    return
   }
   await runOpenFinWindowCommand(() => api.show?.(true) ?? Promise.resolve())
   await runOpenFinWindowCommand(() => api.restore?.() ?? Promise.resolve())
+  if (state === 'maximized') await runOpenFinWindowCommand(() => api.maximize?.() ?? Promise.resolve())
   await runOpenFinWindowCommand(() => api.setAsForeground?.() ?? Promise.resolve(), 250)
 }
 
@@ -10591,7 +10656,7 @@ export function OpenFinDesktopLauncher() {
               minHeight: 220,
               frame: true,
               autoShow: true,
-              state: 'normal',
+              state: normalizeDesktopWindowState(item.desktopState),
               saveWindowState: false,
               showTaskbarIcon: true,
               waitForPageLoad: false,
@@ -10603,7 +10668,7 @@ export function OpenFinDesktopLauncher() {
                 authority: 'server',
               },
             })
-            await showOpenFinWindow(createdWindow, bounds)
+            await showOpenFinWindow(createdWindow, bounds, normalizeDesktopWindowState(item.desktopState))
             opened += 1
             setStatus(`Opened toolbar and ${opened}/${windows.length} Cerious Desktop windows.`)
             await new Promise(resolve => window.setTimeout(resolve, 75))
