@@ -64,6 +64,33 @@ Or use the helper:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\clients\openfin-terminal\scripts\Launch-CeriousOpenFin.ps1 -StartBackend
 ```
 
+## One-Click Desktop Install
+
+```powershell
+npm.cmd --prefix clients/openfin-terminal install
+npm.cmd --prefix clients/openfin-terminal run install:shortcut
+```
+
+This creates a branded `Cerious Desktop` shortcut on the Windows desktop and in
+the Start Menu. The shortcut uses the Cerious icon and launches the OpenFin/HERE
+Desktop version without opening a visible console window.
+
+## Local Thin Package
+
+```powershell
+npm.cmd --prefix clients/openfin-terminal run package:local
+```
+
+Output:
+
+```text
+release/CeriousOpenFinDesktop-local.zip
+```
+
+This is the local package artifact for the Desktop version. The future
+production installer should harden this flow with signing and environment
+selection, but the launch contract is now executable.
+
 ## Future Work
 
 1. Add OpenFin Platform Provider when the desktop layout contract is ready.

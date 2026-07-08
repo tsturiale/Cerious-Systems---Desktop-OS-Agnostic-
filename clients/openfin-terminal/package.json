@@ -5,7 +5,9 @@
   "scripts": {
     "launch:local": "openfin -l -c manifests/local.json",
     "launch:local:npx": "npx openfin-cli -l -c manifests/local.json",
-    "validate": "node scripts/validate-manifests.mjs"
+    "validate": "node scripts/validate-manifests.mjs",
+    "install:shortcut": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Install-CeriousDesktopShortcut.ps1",
+    "package:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-CeriousOpenFinPackage.ps1"
   },
   "devDependencies": {
     "openfin-cli": "^4.0.0"

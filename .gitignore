@@ -15,6 +15,7 @@ data/acme-imports/
 node_modules/
 .tools/
 dist/
+release/
 build/
 target/
 native/**/build/

@@ -5,8 +5,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$clientRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
-$repoRoot = Resolve-Path (Join-Path $clientRoot '..\..')
+$clientRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$repoRoot = (Resolve-Path (Join-Path $clientRoot '..\..')).Path
 $gatewayHealth = 'http://127.0.0.1:8000/api/health'
 
 if ($StartBackend) {

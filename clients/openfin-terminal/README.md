@@ -52,6 +52,38 @@ If the OpenFin CLI is not installed locally yet, this also works:
 npm.cmd --prefix clients/openfin-terminal run launch:local:npx
 ```
 
+## One-Click Local Desktop Launcher
+
+Install the branded desktop and Start Menu shortcuts:
+
+```powershell
+npm.cmd --prefix clients/openfin-terminal run install:shortcut
+```
+
+The shortcut launches:
+
+```text
+clients/openfin-terminal/bin/CeriousDesktop.vbs
+```
+
+That starts the local backend if needed, waits for gateway health, then launches
+the OpenFin/HERE Desktop version.
+
+## Build a Local Thin Package
+
+```powershell
+npm.cmd --prefix clients/openfin-terminal run package:local
+```
+
+This creates:
+
+```text
+release/CeriousOpenFinDesktop-local.zip
+```
+
+That zip is the local thin Desktop package. It contains the manifest, launcher,
+shortcut installer, and package lock for repeatable OpenFin CLI install.
+
 ## Manifest Profiles
 
 ```text
