@@ -11,6 +11,7 @@ forking trading logic away from the server-side architecture.
 - [`docs/CURRENT_BUILD_ARCHITECTURE.md`](docs/CURRENT_BUILD_ARCHITECTURE.md)
 - [`docs/TRANSPORT_MANIFEST.md`](docs/TRANSPORT_MANIFEST.md)
 - [`docs/OPENFIN_DESKTOP_WORKFLOW.md`](docs/OPENFIN_DESKTOP_WORKFLOW.md)
+- [`docs/MACBOOK_AND_LINUX_RUNBOOK.md`](docs/MACBOOK_AND_LINUX_RUNBOOK.md)
 
 - Active client: browser terminal at `http://127.0.0.1:8000/`
 - Desktop client: OpenFin/HERE runtime loading the same terminal URL
@@ -59,6 +60,42 @@ clients/openfin-terminal
 It launches the same terminal and backend contract as the browser workflow. It
 does not duplicate backend or browser business logic.
 
+## macOS / Linux Quick Start
+
+This repo now includes a Unix lane for MacBook development and Linux backend
+deployment.
+
+```bash
+git clone https://github.com/tsturiale/Cerious-Systems---Desktop-OS-Agnostic-.git
+cd Cerious-Systems---Desktop-OS-Agnostic-
+npm run bootstrap:unix
+cp .env.example .env
+# edit .env with DATABENTO_API_KEY and auth values
+npm run build:native:unix
+npm run build:frontend
+npm run start:backend:unix
+```
+
+Desktop client on macOS or Linux:
+
+```bash
+npm run desktop:openfin:launch:unix
+```
+
+Desktop client against a Linux/server backend:
+
+```bash
+export CERIOUS_TERMINAL_URL="https://your-cerious-host.example.com"
+export CERIOUS_DESKTOP_PROFILE="production"
+npm run desktop:openfin:launch:unix
+```
+
+Full runbook:
+
+```text
+docs/MACBOOK_AND_LINUX_RUNBOOK.md
+```
+
 Validate the Desktop manifests:
 
 ```powershell
@@ -88,6 +125,12 @@ The launcher starts:
 The portal URL is:
 
 [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
+
+On macOS/Linux local development, use:
+
+```bash
+npm run start:backend:unix
+```
 
 For Windows login startup and tray health, use:
 

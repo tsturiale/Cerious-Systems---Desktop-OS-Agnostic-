@@ -20,6 +20,7 @@ build/
 target/
 native/**/build/
 apps/terminal/dist/
+clients/openfin-terminal/manifests/*.generated.json
 cerious-*.log
 *.log
 *.tmp

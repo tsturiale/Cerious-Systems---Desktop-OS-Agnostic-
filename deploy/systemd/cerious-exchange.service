@@ -1,0 +1,16 @@
+[Unit]
+Description=Cerious Exchange C++ Simulation Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/cerious-systems
+EnvironmentFile=/etc/cerious/cerious.env
+ExecStart=/opt/cerious-systems/native/cerious-exchange-cpp/build/cerious_exchange_server --host ${CERIOUS_EXCHANGE_HOST} --port ${CERIOUS_EXCHANGE_HTTP_PORT} --root /opt/cerious-systems
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

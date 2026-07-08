@@ -2,10 +2,15 @@
   "name": "cerious-systems",
   "private": true,
   "scripts": {
+    "bootstrap:unix": "bash scripts/bootstrap-unix.sh",
     "dev:frontend": "npm --prefix apps/terminal run dev",
     "build:frontend": "npm --prefix apps/terminal run build",
+    "build:native:unix": "bash scripts/build-native-unix.sh",
+    "start:backend:unix": "bash scripts/start-backend-unix.sh",
     "audit:react-dumb-terminal": "node tools/audit-react-dumb-terminal.mjs",
     "desktop:openfin:validate": "npm --prefix clients/openfin-terminal run validate",
-    "desktop:openfin:launch": "npm --prefix clients/openfin-terminal run launch:local"
+    "desktop:openfin:launch": "npm --prefix clients/openfin-terminal run launch:local",
+    "desktop:openfin:launch:unix": "bash scripts/launch-openfin-unix.sh",
+    "desktop:openfin:manifest": "node scripts/make-openfin-manifest.mjs"
   }
 }

@@ -1024,6 +1024,8 @@ struct Args {
 
 Args parse_args(int argc, char** argv) {
     Args args;
+    args.host = env_or("CERIOUS_BACKEND_HOST", "127.0.0.1");
+    args.execution_host = env_or("CERIOUS_EXCHANGE_HOST", "127.0.0.1");
     args.port = env_port("CERIOUS_BACKEND_PORT", 8000);
     args.execution_port = env_port("CERIOUS_EXCHANGE_HTTP_PORT", 8011);
     args.root = fs::current_path();

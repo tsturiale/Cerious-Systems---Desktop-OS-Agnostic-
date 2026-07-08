@@ -52,6 +52,25 @@ If the OpenFin CLI is not installed locally yet, this also works:
 npm.cmd --prefix clients/openfin-terminal run launch:local:npx
 ```
 
+## macOS / Linux Launch
+
+From the repository root:
+
+```bash
+npm run desktop:openfin:launch:unix
+```
+
+To launch against a remote Linux/backend server instead of localhost:
+
+```bash
+export CERIOUS_TERMINAL_URL="https://your-cerious-host.example.com"
+export CERIOUS_DESKTOP_PROFILE="production"
+npm run desktop:openfin:launch:unix
+```
+
+The Unix launcher generates an OpenFin manifest from the selected terminal URL,
+then starts OpenFin through `openfin-cli`.
+
 ## One-Click Local Desktop Launcher
 
 Install the branded desktop and Start Menu shortcuts:

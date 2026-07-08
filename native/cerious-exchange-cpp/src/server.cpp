@@ -952,8 +952,11 @@ private:
 } // namespace
 
 int main(int argc, char** argv) {
+    std::string host = "127.0.0.1";
     int port = 8011;
     fs::path root = fs::current_path();
+    const auto env_host = env_string("CERIOUS_EXCHANGE_HOST");
+    if (!env_host.empty()) host = env_host;
     const auto env_port = env_string("CERIOUS_EXCHANGE_PORT");
     if (!env_port.empty()) {
         try { port = std::stoi(env_port); } catch (...) {}
@@ -967,6 +970,8 @@ int main(int argc, char** argv) {
         const std::string arg = argv[i];
         if (arg == "--port" && i + 1 < argc) {
             try { port = std::stoi(argv[++i]); } catch (...) {}
+        } else if (arg == "--host" && i + 1 < argc) {
+            host = argv[++i];
         } else if (arg == "--root" && i + 1 < argc) {
             root = fs::path(argv[++i]);
         }
@@ -1043,8 +1048,8 @@ int main(int argc, char** argv) {
         }).detach();
     });
 
-    std::cerr << "cerious_exchange_server listening on 127.0.0.1:" << port << "\n";
-    server.listen("127.0.0.1", port);
+    std::cerr << "cerious_exchange_server listening on " << host << ":" << port << "\n";
+    server.listen(host, port);
     shutdown_requested.store(true);
     return 0;
 }
