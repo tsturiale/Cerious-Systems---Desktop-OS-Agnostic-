@@ -2,12 +2,6 @@
   "runtime": {
     "version": "stable"
   },
-  "shortcut": {
-    "company": "Cerious Systems",
-    "description": "Cerious Desktop",
-    "name": "Cerious Desktop",
-    "icon": "https://YOUR_PRODUCTION_TERMINAL_HOST/branding/cerious-logo.png"
-  },
   "startup_app": {
     "uuid": "cerious-systems-desktop-production",
     "name": "Cerious Desktop",

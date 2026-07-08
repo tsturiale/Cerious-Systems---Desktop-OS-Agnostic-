@@ -9,6 +9,17 @@ $clientRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $repoRoot = (Resolve-Path (Join-Path $clientRoot '..\..')).Path
 $gatewayHealth = 'http://127.0.0.1:8000/api/health'
 
+Get-CimInstance Win32_Process -Filter "name='openfin.exe'" |
+  Where-Object {
+    $_.CommandLine -match 'Cerious_Desktop_650253378' -or
+    $_.CommandLine -match 'cerious-systems-desktop-local' -or
+    $_.CommandLine -match 'OPENFI~1.*LOCAL~1\.JSO' -or
+    $_.CommandLine -match [regex]::Escape($clientRoot)
+  } |
+  ForEach-Object {
+    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+
 if ($StartBackend) {
   $launcher = Join-Path $repoRoot 'Start-CeriousApp.ps1'
   Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @(

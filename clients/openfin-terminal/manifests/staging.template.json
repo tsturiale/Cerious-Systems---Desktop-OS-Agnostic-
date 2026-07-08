@@ -2,12 +2,6 @@
   "runtime": {
     "version": "stable"
   },
-  "shortcut": {
-    "company": "Cerious Systems",
-    "description": "Cerious Desktop Staging",
-    "name": "Cerious Desktop Staging",
-    "icon": "https://YOUR_STAGING_TERMINAL_HOST/branding/cerious-logo.png"
-  },
   "startup_app": {
     "uuid": "cerious-systems-desktop-staging",
     "name": "Cerious Desktop Staging",
