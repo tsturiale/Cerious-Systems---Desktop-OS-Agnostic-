@@ -1,0 +1,191 @@
+{
+  "schema": "cerious.product-definitions.v1",
+  "source": "cerious.product-library",
+  "updatedAt": "2026-06-24T00:00:00Z",
+  "notes": "Backend-owned product definition table. UI windows consume these definitions; financial calculations stay in native services.",
+  "products": [
+    {
+      "symbol": "ES",
+      "exchange": "CME",
+      "kind": "future",
+      "label": "E-mini S&P 500",
+      "tickSize": 0.25,
+      "tickValue": 12.5,
+      "displayPrecision": 2,
+      "synthetic": false
+    },
+    {
+      "symbol": "MES",
+      "exchange": "CME",
+      "kind": "future",
+      "label": "Micro E-mini S&P 500",
+      "tickSize": 0.25,
+      "tickValue": 1.25,
+      "displayPrecision": 2,
+      "synthetic": false
+    },
+    {
+      "symbol": "NQ",
+      "exchange": "CME",
+      "kind": "future",
+      "label": "E-mini Nasdaq-100",
+      "tickSize": 0.25,
+      "tickValue": 5,
+      "displayPrecision": 2,
+      "synthetic": false
+    },
+    {
+      "symbol": "MNQ",
+      "exchange": "CME",
+      "kind": "future",
+      "label": "Micro E-mini Nasdaq-100",
+      "tickSize": 0.25,
+      "tickValue": 0.5,
+      "displayPrecision": 2,
+      "synthetic": false
+    },
+    {
+      "symbol": "YM",
+      "exchange": "CME",
+      "kind": "future",
+      "label": "E-mini Dow Jones",
+      "tickSize": 1,
+      "tickValue": 5,
+      "displayPrecision": 0,
+      "synthetic": false
+    },
+    {
+      "symbol": "MYM",
+      "exchange": "CME",
+      "kind": "future",
+      "label": "Micro E-mini Dow Jones",
+      "tickSize": 1,
+      "tickValue": 0.5,
+      "displayPrecision": 0,
+      "synthetic": false
+    },
+    {
+      "symbol": "RTY",
+      "exchange": "CME",
+      "kind": "future",
+      "label": "E-mini Russell 2000",
+      "tickSize": 0.1,
+      "tickValue": 5,
+      "displayPrecision": 2,
+      "synthetic": false
+    },
+    {
+      "symbol": "M2K",
+      "exchange": "CME",
+      "kind": "future",
+      "label": "Micro E-mini Russell 2000",
+      "tickSize": 0.1,
+      "tickValue": 0.5,
+      "displayPrecision": 2,
+      "synthetic": false
+    },
+    {
+      "symbol": "CL",
+      "exchange": "CME",
+      "kind": "future",
+      "label": "Crude Oil",
+      "tickSize": 0.01,
+      "tickValue": 10,
+      "displayPrecision": 2,
+      "synthetic": false
+    },
+    {
+      "symbol": "GC",
+      "exchange": "CME",
+      "kind": "future",
+      "label": "Gold",
+      "tickSize": 0.1,
+      "tickValue": 10,
+      "displayPrecision": 1,
+      "synthetic": false
+    },
+    {
+      "symbol": "ZM",
+      "exchange": "CME",
+      "kind": "future",
+      "label": "Soybean Meal",
+      "tickSize": 0.1,
+      "tickValue": 10,
+      "displayPrecision": 1,
+      "synthetic": false
+    },
+    {
+      "symbol": "ZS",
+      "exchange": "CME",
+      "kind": "future",
+      "label": "Soybeans",
+      "tickSize": 0.25,
+      "tickValue": 12.5,
+      "displayPrecision": 2,
+      "synthetic": false
+    },
+    {
+      "symbol": "ES_NQ",
+      "exchange": "CERIOUS",
+      "kind": "synthetic-spread",
+      "label": "ES/NQ",
+      "formula": "ES - 0.2666667 * NQ",
+      "ratio": "3 ES : 2 NQ",
+      "tickSize": 0.25,
+      "tickValue": 37.5,
+      "displayPrecision": 2,
+      "synthetic": true,
+      "expression": {
+        "left": "ES",
+        "right": "NQ",
+        "coefficient": 0.2666667
+      },
+      "legs": [
+        { "symbol": "ES", "side": 1, "ratio": 3 },
+        { "symbol": "NQ", "side": -1, "ratio": 2 }
+      ]
+    },
+    {
+      "symbol": "YM_ES",
+      "exchange": "CERIOUS",
+      "kind": "synthetic-spread",
+      "label": "YM/ES",
+      "formula": "YM - 6.6666667 * ES",
+      "ratio": "10 YM : 1 ES",
+      "tickSize": 1,
+      "tickValue": 15,
+      "displayPrecision": 0,
+      "synthetic": true,
+      "expression": {
+        "left": "YM",
+        "right": "ES",
+        "coefficient": 6.6666667
+      },
+      "legs": [
+        { "symbol": "YM", "side": 1, "ratio": 10 },
+        { "symbol": "ES", "side": -1, "ratio": 1 }
+      ]
+    },
+    {
+      "symbol": "RTY_ES",
+      "exchange": "CERIOUS",
+      "kind": "synthetic-spread",
+      "label": "RTY/ES",
+      "formula": "RTY - 0.4285714 * ES",
+      "ratio": "7 RTY : 3 ES",
+      "tickSize": 0.1,
+      "tickValue": 35,
+      "displayPrecision": 2,
+      "synthetic": true,
+      "expression": {
+        "left": "RTY",
+        "right": "ES",
+        "coefficient": 0.4285714
+      },
+      "legs": [
+        { "symbol": "RTY", "side": 1, "ratio": 7 },
+        { "symbol": "ES", "side": -1, "ratio": 3 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "service": "news.subscriptions",
+  "owner": "cerious-gateway",
+  "mode": "server-side-rss",
+  "refreshMs": 60000,
+  "sources": [
+    {
+      "id": "cnbc-top",
+      "name": "CNBC",
+      "category": "markets",
+      "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html"
+    },
+    {
+      "id": "marketwatch-top",
+      "name": "MarketWatch",
+      "category": "markets",
+      "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories"
+    },
+    {
+      "id": "investing-markets",
+      "name": "Investing.com",
+      "category": "markets",
+      "url": "https://www.investing.com/rss/news_25.rss"
+    },
+    {
+      "id": "bbc-business",
+      "name": "BBC Business",
+      "category": "global",
+      "url": "https://feeds.bbci.co.uk/news/business/rss.xml"
+    },
+    {
+      "id": "npr-business",
+      "name": "NPR Business",
+      "category": "business",
+      "url": "https://feeds.npr.org/1006/rss.xml"
+    }
+  ]
+}
