@@ -30,14 +30,21 @@ the browser terminal, or Zustand.
 ## Runtime Contract
 
 The OpenFin manifest points to the same terminal route as the browser, with a
-desktop client marker:
+hidden desktop launcher marker:
 
 ```text
-http://127.0.0.1:8000/?cerious_client=openfin&cerious_view=desktop
+http://127.0.0.1:8000/?cerious_client=openfin&cerious_desktop=launcher
 ```
 
-The route marker is only presentation context. It must not move trading logic
-into the client.
+The launcher opens saved workspace widgets as independent OpenFin windows using
+standalone URLs such as:
+
+```text
+http://127.0.0.1:8000/?cerious_client=openfin&cerious_window=depthLadder&window_id=depthLadder-3
+```
+
+The browser path can still render the canvas. The Desktop version does not use
+the canvas as a container.
 
 ## Desktop Version Files
 

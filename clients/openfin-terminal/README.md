@@ -95,8 +95,12 @@ manifests/production.template.json
 The local manifest launches:
 
 ```text
-http://127.0.0.1:8000/?cerious_client=openfin&cerious_view=desktop
+http://127.0.0.1:8000/?cerious_client=openfin&cerious_desktop=launcher
 ```
+
+That launcher is hidden. It opens each saved workspace item as an independent
+OpenFin window using `?cerious_window=<kind>&window_id=<id>`. The Desktop
+version does not render the canvas.
 
 Staging and production templates should point to the future cloud terminal host.
 

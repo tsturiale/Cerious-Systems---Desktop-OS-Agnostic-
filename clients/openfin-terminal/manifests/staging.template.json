@@ -11,8 +11,8 @@
   "startup_app": {
     "uuid": "cerious-systems-desktop-staging",
     "name": "Cerious Desktop Staging",
-    "url": "https://YOUR_STAGING_TERMINAL_HOST/?cerious_client=openfin&cerious_view=desktop",
-    "autoShow": true,
+    "url": "https://YOUR_STAGING_TERMINAL_HOST/?cerious_client=openfin&cerious_desktop=launcher",
+    "autoShow": false,
     "defaultCentered": true,
     "defaultWidth": 1720,
     "defaultHeight": 1040,
@@ -26,7 +26,7 @@
     "waitForPageLoad": true,
     "icon": "https://YOUR_STAGING_TERMINAL_HOST/branding/cerious-logo.ico",
     "customData": {
-      "ceriousClient": "openfin-desktop",
+      "ceriousClient": "openfin-desktop-launcher",
       "backendProfile": "staging",
       "gatewayBaseUrl": "https://YOUR_STAGING_TERMINAL_HOST",
       "authority": "server"

@@ -11,11 +11,11 @@
   "startup_app": {
     "uuid": "cerious-systems-desktop-local",
     "name": "Cerious Desktop",
-    "url": "http://127.0.0.1:8000/?cerious_client=openfin&cerious_view=desktop",
-    "autoShow": true,
+    "url": "http://127.0.0.1:8000/?cerious_client=openfin&cerious_desktop=launcher",
+    "autoShow": false,
     "defaultCentered": true,
-    "defaultWidth": 1720,
-    "defaultHeight": 1040,
+    "defaultWidth": 420,
+    "defaultHeight": 320,
     "minWidth": 1100,
     "minHeight": 720,
     "frame": true,
@@ -26,7 +26,7 @@
     "waitForPageLoad": true,
     "icon": "http://127.0.0.1:8000/branding/cerious-logo.ico",
     "customData": {
-      "ceriousClient": "openfin-desktop",
+      "ceriousClient": "openfin-desktop-launcher",
       "backendProfile": "local",
       "gatewayBaseUrl": "http://127.0.0.1:8000",
       "authority": "server"

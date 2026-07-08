@@ -9945,6 +9945,303 @@ function renderWindowBody(
   return <ServiceMapWindow />
 }
 
+type OpenFinWindowOptions = {
+  name: string
+  url: string
+  defaultLeft?: number
+  defaultTop?: number
+  defaultWidth?: number
+  defaultHeight?: number
+  minWidth?: number
+  minHeight?: number
+  frame?: boolean
+  autoShow?: boolean
+  saveWindowState?: boolean
+  waitForPageLoad?: boolean
+  icon?: string
+  customData?: Record<string, unknown>
+}
+
+type OpenFinApi = {
+  Window?: {
+    create?: (options: OpenFinWindowOptions) => Promise<unknown>
+    getCurrentSync?: () => { hide?: () => Promise<void>; close?: () => Promise<void> }
+  }
+}
+
+function openFinApi(): OpenFinApi | undefined {
+  return (window as unknown as { fin?: OpenFinApi }).fin
+}
+
+function isWorkspaceWindowKind(value: unknown): value is WorkspaceWindowKind {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(WINDOW_LABELS, value)
+}
+
+function desktopWindowUrl(item: WorkspaceWindow): string {
+  const params = new URLSearchParams()
+  params.set('cerious_client', 'openfin')
+  params.set('cerious_window', item.kind)
+  params.set('window_id', item.id)
+  if (item.provider) params.set('provider', item.provider)
+  if (item.symbol) params.set('symbol', item.symbol)
+  return `${window.location.origin}${window.location.pathname}?${params.toString()}`
+}
+
+function fallbackDesktopWorkspace(): SavedWorkspace {
+  return {
+    name: 'Cerious Desktop',
+    operator: DEFAULT_OPERATOR,
+    windows: defaultWindows('cme'),
+    rows: [],
+    alerts: [],
+    selectedProvider: 'cme',
+    selectedSymbol: 'ES',
+    updatedAt: epochMs(),
+  }
+}
+
+function desktopWindowCount(workspace: SavedWorkspace | null | undefined): number {
+  return workspace?.windows.filter(item => !isRemovedWindowKind(item.kind)).length ?? 0
+}
+
+function selectDesktopWorkspace(candidates: SavedWorkspace[]): SavedWorkspace | null {
+  const latestByKey = Array.from(candidates
+    .filter(item => desktopWindowCount(item) > 0)
+    .reduce((map, item) => {
+      const key = workspaceKey(item.operator, item.name)
+      const existing = map.get(key)
+      if (!existing || item.updatedAt > existing.updatedAt) map.set(key, item)
+      return map
+    }, new Map<string, SavedWorkspace>())
+    .values())
+
+  const latestTedS = latestByKey
+    .filter(item => workspaceKey(item.operator, item.name) === workspaceKey(DEFAULT_OPERATOR, 'Ted S'))
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+
+  return latestTedS ?? latestByKey.sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null
+}
+
+function cacheDesktopWorkspace(workspace: SavedWorkspace): void {
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace))
+  window.localStorage.setItem(DEFAULT_WORKSPACE_KEY, JSON.stringify(workspace))
+  const saved = upsertSavedWorkspace(loadSavedWorkspaces(), workspace)
+  window.localStorage.setItem(WORKSPACE_NAMES_KEY, JSON.stringify(saved))
+}
+
+function loadDesktopWorkspaceWindows(): SavedWorkspace {
+  const workspace = loadActiveWorkspace()
+  if (workspace && desktopWindowCount(workspace) > 1) return workspace
+  return fallbackDesktopWorkspace()
+}
+
+async function loadDesktopWorkspaceWindowsAsync(): Promise<SavedWorkspace> {
+  const [serverSaved, recovered] = await Promise.all([
+    fetchServerSavedWorkspaces(),
+    fetchRecoveredWorkspaces(),
+  ])
+  const serverWorkspace = selectDesktopWorkspace([...serverSaved, ...recovered])
+  if (serverWorkspace) {
+    cacheDesktopWorkspace(serverWorkspace)
+    return serverWorkspace
+  }
+
+  const localWorkspace = loadActiveWorkspace()
+  if (localWorkspace && desktopWindowCount(localWorkspace) > 1) return localWorkspace
+
+  const fallback = fallbackDesktopWorkspace()
+  cacheDesktopWorkspace(fallback)
+  return fallback
+}
+
+function resolveDesktopWindow(): { workspace: SavedWorkspace; item: WorkspaceWindow } {
+  const params = new URLSearchParams(window.location.search)
+  const workspace = loadDesktopWorkspaceWindows()
+  const id = params.get('window_id') || ''
+  const requestedKind = params.get('cerious_window')
+  const itemFromWorkspace = workspace.windows.find(windowItem => windowItem.id === id)
+  const fallbackKind = isWorkspaceWindowKind(requestedKind) ? requestedKind : 'marketData'
+  const fallback = workspace.windows.find(windowItem => windowItem.kind === fallbackKind) ?? win(fallbackKind, 0, 0, window.innerWidth, window.innerHeight, 1)
+  const provider = normalizeProviderKey((params.get('provider') ?? itemFromWorkspace?.provider ?? fallback.provider ?? workspace.selectedProvider) as ProviderKey | undefined)
+  const symbol = params.get('symbol') ?? itemFromWorkspace?.symbol ?? fallback.symbol ?? workspace.selectedSymbol ?? defaultSymbolForWindowKind(fallback.kind, 'ES')
+  const item = {
+    ...fallback,
+    ...itemFromWorkspace,
+    id: id || itemFromWorkspace?.id || fallback.id,
+    provider,
+    symbol,
+    collapsed: false,
+    x: 0,
+    y: 0,
+    w: window.innerWidth,
+    h: window.innerHeight,
+  }
+  return { workspace, item }
+}
+
+function useDesktopWindowDocumentTitle(item: WorkspaceWindow) {
+  useEffect(() => {
+    document.title = item.kind === 'depthLadder' && item.symbol
+      ? `${WINDOW_LABELS.depthLadder} - ${item.symbol}`
+      : item.title || WINDOW_LABELS[item.kind]
+  }, [item.kind, item.symbol, item.title])
+}
+
+export function WorkspaceDesktopWindow() {
+  useMarketBootstrap()
+  useCeriousTradingStateHydrator()
+  const resolved = useMemo(resolveDesktopWindow, [])
+  const [item, setItem] = useState<WorkspaceWindow>(resolved.item)
+  const [marketRows, setMarketRows] = useState<MarketRowConfig[]>(resolved.workspace.rows ?? [])
+  const [alerts, setAlerts] = useState<AlertRule[]>(resolved.workspace.alerts ?? [])
+  const [selectedProvider, setSelectedProvider] = useState<ProviderKey>(normalizeProviderKey(item.provider ?? resolved.workspace.selectedProvider))
+  const [selectedSymbol, setSelectedSymbol] = useState(item.symbol ?? resolved.workspace.selectedSymbol ?? 'ES')
+  const operatorName = resolved.workspace.operator || DEFAULT_OPERATOR
+  const setProvider = useStore(s => s.setMarketProvider)
+
+  useDesktopWindowDocumentTitle(item)
+
+  const selectProduct = (provider: ProviderKey, symbol: string) => {
+    const nextProvider = normalizeProviderKey(provider)
+    setProvider(nextProvider)
+    setSelectedProvider(nextProvider)
+    setSelectedSymbol(symbol)
+  }
+
+  const selectWindowProduct = (id: string, provider: ProviderKey, symbol: string) => {
+    const nextProvider = normalizeProviderKey(provider)
+    setItem(current => current.id === id ? { ...current, provider: nextProvider, symbol } : current)
+  }
+
+  const updateWindowChartSettings = (id: string, chartSettings: CeriousChartSettings) => {
+    setItem(current => current.id === id ? { ...current, chartSettings } : current)
+  }
+
+  const updateWindowDepthLadderSettings = (id: string, depthLadderSettings: DepthLadderSettings) => {
+    setItem(current => current.id === id ? { ...current, depthLadderSettings: normalizeDepthLadderSettings(depthLadderSettings) } : current)
+  }
+
+  const saveDepthLadderDefaultForWindow = (id: string, depthLadderSettings: DepthLadderSettings) => {
+    const normalized = saveDepthLadderDefaultSettings(depthLadderSettings)
+    setItem(current => current.id === id ? { ...current, depthLadderSettings: normalized } : current)
+  }
+
+  return (
+    <main className="h-screen min-h-0 overflow-hidden bg-surface text-slate-100">
+      {renderWindowBody(item, {
+        marketRows,
+        setMarketRows,
+        selectedProvider,
+        selectedSymbol,
+        operatorName,
+        selectProduct,
+        selectWindowProduct,
+        alerts,
+        setAlerts,
+        cloneChart: () => undefined,
+        cloneRunway: () => undefined,
+        updateWindowChartSettings,
+        updateWindowDepthLadderSettings,
+        saveDepthLadderDefaultForWindow,
+      })}
+    </main>
+  )
+}
+
+export function OpenFinDesktopLauncher() {
+  const [status, setStatus] = useState('Opening Cerious Desktop windows...')
+  const [launcherWorkspace, setLauncherWorkspace] = useState<SavedWorkspace>(() => loadDesktopWorkspaceWindows())
+
+  useEffect(() => {
+    let cancelled = false
+    const launch = async () => {
+      const fin = openFinApi()
+      const workspace = await loadDesktopWorkspaceWindowsAsync()
+      if (cancelled) return
+      setLauncherWorkspace(workspace)
+      const windows = workspace.windows
+        .filter(item => !isRemovedWindowKind(item.kind))
+        .sort((a, b) => a.z - b.z)
+
+      if (!windows.length) {
+        setStatus('No saved workspace windows found.')
+        return
+      }
+
+      if (!fin?.Window?.create) {
+        setStatus('OpenFin runtime unavailable. Use the links below to open standalone windows.')
+        return
+      }
+
+      const createWindow = fin.Window.create.bind(fin.Window)
+      const icon = `${window.location.origin}/branding/cerious-logo.ico`
+      try {
+        const results = await Promise.allSettled(windows.map(item => {
+          const bounds = item.floatingBounds ?? item
+          return createWindow({
+            name: `cerious-${item.id}`,
+            url: desktopWindowUrl(item),
+            defaultLeft: Math.round(bounds.x),
+            defaultTop: Math.round(bounds.y),
+            defaultWidth: Math.max(360, Math.round(bounds.w)),
+            defaultHeight: Math.max(260, Math.round(bounds.h)),
+            minWidth: 320,
+            minHeight: 220,
+            frame: true,
+            autoShow: true,
+            saveWindowState: false,
+            waitForPageLoad: false,
+            icon,
+            customData: {
+              ceriousClient: 'openfin-desktop-window',
+              workspace: workspace.name,
+              windowKind: item.kind,
+              authority: 'server',
+            },
+          })
+        }))
+        if (cancelled) return
+        const failed = results.filter(item => item.status === 'rejected').length
+        setStatus(failed
+          ? `Opened ${windows.length - failed} Cerious Desktop windows; ${failed} failed.`
+          : `Opened ${windows.length} Cerious Desktop windows.`)
+        if (failed === 0) await fin.Window.getCurrentSync?.().hide?.()
+      } catch (error) {
+        setStatus(`Desktop launch failed: ${error instanceof Error ? error.message : 'unknown error'}`)
+      }
+    }
+    launch()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const windows = launcherWorkspace.windows.filter(item => !isRemovedWindowKind(item.kind))
+
+  return (
+    <main className="flex h-screen items-center justify-center bg-surface p-8 text-slate-100">
+      <div className="w-full max-w-3xl border border-surface-border bg-surface-panel p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)]">
+        <div className="text-xs font-black uppercase tracking-wide text-accent">Cerious Desktop</div>
+        <h1 className="mt-2 text-2xl font-black text-white">Launching Workspace Windows</h1>
+        <p className="mt-3 text-sm text-muted">{status}</p>
+        <div className="mt-5 grid gap-2">
+          {windows.map(item => (
+            <a
+              key={item.id}
+              className="border border-surface-border bg-surface-card px-3 py-2 text-xs font-bold text-slate-200 hover:border-accent hover:text-accent"
+              href={desktopWindowUrl(item)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {item.kind === 'depthLadder' && item.symbol ? `${WINDOW_LABELS.depthLadder} - ${item.symbol}` : item.title || WINDOW_LABELS[item.kind]}
+            </a>
+          ))}
+        </div>
+      </div>
+    </main>
+  )
+}
+
 export function WorkspaceCanvas() {
   useMarketBootstrap()
   useCeriousTradingStateHydrator()
