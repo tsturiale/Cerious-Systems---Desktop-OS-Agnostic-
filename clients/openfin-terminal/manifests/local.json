@@ -1,0 +1,35 @@
+{
+  "runtime": {
+    "version": "stable"
+  },
+  "shortcut": {
+    "company": "Cerious Systems",
+    "description": "Cerious Desktop",
+    "name": "Cerious Desktop",
+    "icon": "http://127.0.0.1:8000/branding/cerious-logo.ico"
+  },
+  "startup_app": {
+    "uuid": "cerious-systems-desktop-local",
+    "name": "Cerious Desktop",
+    "url": "http://127.0.0.1:8000/?cerious_client=openfin&cerious_view=desktop",
+    "autoShow": true,
+    "defaultCentered": true,
+    "defaultWidth": 1720,
+    "defaultHeight": 1040,
+    "minWidth": 1100,
+    "minHeight": 720,
+    "frame": true,
+    "resizable": true,
+    "maximizable": true,
+    "saveWindowState": true,
+    "showTaskbarIcon": true,
+    "waitForPageLoad": true,
+    "icon": "http://127.0.0.1:8000/branding/cerious-logo.ico",
+    "customData": {
+      "ceriousClient": "openfin-desktop",
+      "backendProfile": "local",
+      "gatewayBaseUrl": "http://127.0.0.1:8000",
+      "authority": "server"
+    }
+  }
+}

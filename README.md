@@ -1,21 +1,19 @@
-# Cerious Systems
+# Cerious OpenFin Desktop
 
-Cloud-native browser trading terminal with a React UI and modular C++ backend
-services for futures execution, market data, studies, algorithms, state
-management, trade analytics, and deterministic local simulation.
+Desktop version of Cerious Systems using the OpenFin/HERE runtime over the same
+cloud-native React terminal and modular C++ backend services.
 
-## Last Known Good Backup
+The goal of this repository is a professional desktop work experience without
+forking trading logic away from the server-side architecture.
 
-This build is marked as the current stable local/cloud-native baseline for the
-Cerious futures EMS/OMS workspace.
-
-Primary architecture reference:
+## Primary References
 
 - [`docs/CURRENT_BUILD_ARCHITECTURE.md`](docs/CURRENT_BUILD_ARCHITECTURE.md)
 - [`docs/TRANSPORT_MANIFEST.md`](docs/TRANSPORT_MANIFEST.md)
-- [`docs/QT_NATIVE_TERMINAL.md`](docs/QT_NATIVE_TERMINAL.md)
+- [`docs/OPENFIN_DESKTOP_WORKFLOW.md`](docs/OPENFIN_DESKTOP_WORKFLOW.md)
 
 - Active client: browser terminal at `http://127.0.0.1:8000/`
+- Desktop client: OpenFin/HERE runtime loading the same terminal URL
 - UI role: render server-published state and submit typed user commands
 - Backend role: own market data, study values, orders, fills, positions, PnL,
   algorithm lifecycle, audit trail, and exchange/simulation routing
@@ -26,11 +24,11 @@ Primary architecture reference:
 - Service transport direction: C++ service boundaries first. Aeron IPC exists in
   the parked FIX adapter lane, but the active local build currently uses the C++
   gateway/exchange/price-feed process contract described below.
-- Retired desktop packaging workflow: removed from the active product path
-- Parked FIX workflow: source exists for future TT/FIX integration, but no FIX
+- Prior desktop experiments are not the Desktop version path.
+- Parked FIX workflow: source exists for future FIX gateway integration, but no FIX
   routing daemon is launched or touched by the current runtime stack.
-- Native desktop direction: `clients/qt-terminal` is the C++/Qt terminal lane.
-  It consumes the same backend contract and does not own trading authority.
+- Desktop direction: `clients/openfin-terminal` packages the existing terminal
+  in OpenFin/HERE and consumes the same backend contract.
 
 ## Runtime Architecture
 
@@ -49,18 +47,30 @@ native/gateway-cpp/cerious_gateway.exe       port 8000
 
 The frontend renders state. Trading state, matching, fills, positions, PnL, price ownership, and order routing belong to native C++ services.
 
-## Native Qt Client Lane
+## Desktop Version Lane
 
-This repository is the desktop-native Cerious line. The Qt client lives here:
+This repository is the Cerious Desktop version line. The OpenFin/HERE client
+lane lives here:
 
 ```text
-clients/qt-terminal
+clients/openfin-terminal
 ```
 
-It is designed to run on Windows, macOS, or Linux and point at the same C++
-gateway, including a future Linux backend deployment. It renders backend read
-models and submits typed commands; it does not duplicate browser or backend
-business logic.
+It launches the same terminal and backend contract as the browser workflow. It
+does not duplicate backend or browser business logic.
+
+Validate the Desktop manifests:
+
+```powershell
+npm.cmd run desktop:openfin:validate
+```
+
+Launch the local Desktop version after starting the backend:
+
+```powershell
+npm.cmd --prefix clients/openfin-terminal install
+npm.cmd run desktop:openfin:launch
+```
 
 ## Canonical Startup
 

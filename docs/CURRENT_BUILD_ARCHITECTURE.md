@@ -142,33 +142,34 @@ Non-goals:
 - No market-data business rules in React.
 - No exchange-specific business branching in React.
 
-## Native Qt Client Lane
+## Cerious Desktop Version Lane
 
 Location:
 
 ```text
-clients/qt-terminal
+clients/openfin-terminal
 ```
 
 Status:
 
-Desktop-native C++/Qt branch work for a true cross-platform terminal.
+OpenFin/HERE Desktop version work.
 
 Role:
 
-- Run as a native desktop client on Windows, macOS, or Linux.
+- Launch the existing Cerious terminal in a finance-grade desktop runtime.
+- Provide desktop shortcut/window-shell/runtime packaging.
 - Connect to the same gateway/backend contract as the browser terminal.
-- Render backend snapshots and submit user commands.
+- Render backend snapshots and submit user commands through the same UI.
 
 Non-goals:
 
 - No duplicated matching logic.
 - No duplicated PnL logic.
 - No duplicated study logic.
-- No exchange-specific trading authority inside Qt.
+- No exchange-specific trading authority inside OpenFin.
 
-This keeps the backend deployable on Linux while allowing multiple clients to
-consume the same service contract.
+This keeps the backend deployable on Linux while allowing browser and Desktop
+clients to consume the same service contract.
 
 ## State Ownership
 
@@ -278,7 +279,7 @@ Status:
 
 Purpose later:
 
-- TT FIX or another FIX gateway adapter.
+- Future FIX gateway adapter.
 - FIX session management.
 - FIX message construction/parsing.
 - Optional Aeron IPC.

@@ -11,7 +11,7 @@ The browser terminal talks to native C++ services through the gateway. The UI is
 - The UI renders and commands; services own state.
 - Price display comes from product definitions and market-data subscriptions, not widget-specific pricing code.
 - Simulation is its own exchange. It uses the same order lifecycle and position/PnL model as future live venues.
-- Exchange is the business destination, such as CME or SIM. FIX/TT FIX is a routing gateway hop, not the destination shown in the normal trader workflow.
+- Exchange is the business destination, such as CME or SIM. FIX is a routing gateway hop, not the destination shown in the normal trader workflow.
 - Algo Manager does not create private UI-only orders. It sends deploy commands to the algo/order service.
 - If a send-price dependency is unavailable, the algo pauses and publishes an audit event. It must not guess.
 - Depth ladders, order books, fills, positions, alerts, and algos all subscribe to the same authoritative session/order stream.
@@ -96,7 +96,7 @@ It publishes state to every widget that needs it.
 
 ### Routing Gateways
 
-Routing gateways are infrastructure adapters below the order service. TT FIX is a route gateway that can send orders onward to CME and other supported exchanges; it is not itself the business exchange destination. The normal trader workflow should show the destination exchange and product, while FIX session state, rejects, disconnects, and gateway errors are logged to the audit trail and technical monitors.
+Routing gateways are infrastructure adapters below the order service. A FIX adapter can send orders onward to CME and other supported exchanges; it is not itself the business exchange destination. The normal trader workflow should show the destination exchange and product, while FIX session state, rejects, disconnects, and gateway errors are logged to the audit trail and technical monitors.
 
 ### Sim Exchange
 

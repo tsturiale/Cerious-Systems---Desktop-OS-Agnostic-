@@ -9,7 +9,7 @@ Source and application code:
 
 ```text
 apps/terminal
-clients/qt-terminal
+clients/openfin-terminal
 native/cerious-exchange-cpp
 native/cerious-host-cpp
 native/gateway-cpp
@@ -132,8 +132,7 @@ Active:
 
 Not active:
 
-- Tauri desktop client.
-- Chrome desktop download workflow.
+- Prior desktop experiments.
 - FIX order routing.
 - Kalshi outbound order routing.
 - Twilio alerting.

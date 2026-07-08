@@ -1,0 +1,35 @@
+{
+  "runtime": {
+    "version": "stable"
+  },
+  "shortcut": {
+    "company": "Cerious Systems",
+    "description": "Cerious Desktop Staging",
+    "name": "Cerious Desktop Staging",
+    "icon": "https://YOUR_STAGING_TERMINAL_HOST/branding/cerious-logo.ico"
+  },
+  "startup_app": {
+    "uuid": "cerious-systems-desktop-staging",
+    "name": "Cerious Desktop Staging",
+    "url": "https://YOUR_STAGING_TERMINAL_HOST/?cerious_client=openfin&cerious_view=desktop",
+    "autoShow": true,
+    "defaultCentered": true,
+    "defaultWidth": 1720,
+    "defaultHeight": 1040,
+    "minWidth": 1100,
+    "minHeight": 720,
+    "frame": true,
+    "resizable": true,
+    "maximizable": true,
+    "saveWindowState": true,
+    "showTaskbarIcon": true,
+    "waitForPageLoad": true,
+    "icon": "https://YOUR_STAGING_TERMINAL_HOST/branding/cerious-logo.ico",
+    "customData": {
+      "ceriousClient": "openfin-desktop",
+      "backendProfile": "staging",
+      "gatewayBaseUrl": "https://YOUR_STAGING_TERMINAL_HOST",
+      "authority": "server"
+    }
+  }
+}

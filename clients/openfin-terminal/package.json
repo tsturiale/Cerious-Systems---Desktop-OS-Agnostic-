@@ -1,0 +1,13 @@
+{
+  "name": "@cerious/openfin-terminal",
+  "private": true,
+  "description": "Cerious Desktop version packaged for the OpenFin/HERE runtime.",
+  "scripts": {
+    "launch:local": "openfin -l -c manifests/local.json",
+    "launch:local:npx": "npx openfin-cli -l -c manifests/local.json",
+    "validate": "node scripts/validate-manifests.mjs"
+  },
+  "devDependencies": {
+    "openfin-cli": "^4.0.0"
+  }
+}
