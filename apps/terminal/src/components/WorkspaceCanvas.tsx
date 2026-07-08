@@ -478,6 +478,7 @@ const LEGACY_CERIOUS_MODEL_VARIANT_KEY = 'ceriousTraderModelVariantRegistryV1'
 const ALGO_LIBRARY_EVENT = 'cerious-algo-library'
 const ALGO_MANAGER_STATE_EVENT = 'cerious-algo-manager-state'
 const DEFAULT_OPERATOR = 'Operator 1'
+const DESKTOP_WORKSPACE_CHANNEL = 'cerious.desktop.workspace.v1'
 const MAX_WORKSPACE_BACKUPS = 12
 const TRADE_ANALYTICS_ACCOUNT_SIZE = 500_000
 const CME_PRODUCT_ASSETS: Asset[] = ['ES', 'NQ', 'YM', 'RTY', 'CL', 'GC', 'ZM', 'ZS', 'ES_NQ', 'YM_ES', 'RTY_ES']
@@ -9948,6 +9949,10 @@ function renderWindowBody(
 type OpenFinWindowOptions = {
   name: string
   url: string
+  x?: number
+  y?: number
+  width?: number
+  height?: number
   defaultLeft?: number
   defaultTop?: number
   defaultWidth?: number
@@ -9956,7 +9961,9 @@ type OpenFinWindowOptions = {
   minHeight?: number
   frame?: boolean
   autoShow?: boolean
+  state?: 'normal' | 'minimized' | 'maximized'
   saveWindowState?: boolean
+  showTaskbarIcon?: boolean
   waitForPageLoad?: boolean
   icon?: string
   customData?: Record<string, unknown>
@@ -9966,6 +9973,9 @@ type OpenFinApi = {
   Window?: {
     create?: (options: OpenFinWindowOptions) => Promise<unknown>
     getCurrentSync?: () => { hide?: () => Promise<void>; close?: () => Promise<void> }
+  }
+  Application?: {
+    getCurrentSync?: () => { quit?: (force?: boolean) => Promise<void> }
   }
 }
 
@@ -9987,6 +9997,13 @@ function desktopWindowUrl(item: WorkspaceWindow): string {
   return `${window.location.origin}${window.location.pathname}?${params.toString()}`
 }
 
+function desktopToolbarUrl(): string {
+  const params = new URLSearchParams()
+  params.set('cerious_client', 'openfin')
+  params.set('cerious_desktop', 'toolbar')
+  return `${window.location.origin}${window.location.pathname}?${params.toString()}`
+}
+
 function fallbackDesktopWorkspace(): SavedWorkspace {
   return {
     name: 'Cerious Desktop',
@@ -10004,6 +10021,15 @@ function desktopWindowCount(workspace: SavedWorkspace | null | undefined): numbe
   return workspace?.windows.filter(item => !isRemovedWindowKind(item.kind)).length ?? 0
 }
 
+function isTedDesktopWorkspace(workspace: SavedWorkspace): boolean {
+  const key = workspaceKey(workspace.operator, workspace.name)
+  return [
+    workspaceKey(DEFAULT_OPERATOR, 'Ted S'),
+    workspaceKey(DEFAULT_OPERATOR, 'TEDx'),
+    workspaceKey(DEFAULT_OPERATOR, 'Ted X'),
+  ].includes(key)
+}
+
 function selectDesktopWorkspace(candidates: SavedWorkspace[]): SavedWorkspace | null {
   const latestByKey = Array.from(candidates
     .filter(item => desktopWindowCount(item) > 0)
@@ -10016,7 +10042,7 @@ function selectDesktopWorkspace(candidates: SavedWorkspace[]): SavedWorkspace | 
     .values())
 
   const latestTedS = latestByKey
-    .filter(item => workspaceKey(item.operator, item.name) === workspaceKey(DEFAULT_OPERATOR, 'Ted S'))
+    .filter(isTedDesktopWorkspace)
     .sort((a, b) => b.updatedAt - a.updatedAt)[0]
 
   return latestTedS ?? latestByKey.sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null
@@ -10054,6 +10080,59 @@ async function loadDesktopWorkspaceWindowsAsync(): Promise<SavedWorkspace> {
   return fallback
 }
 
+type DesktopLaunchWindow = {
+  item: WorkspaceWindow
+  bounds: FloatingWindowBounds
+}
+
+function readDesktopBounds(item: WorkspaceWindow): FloatingWindowBounds {
+  const source = item.floatingBounds ?? item
+  return {
+    x: Number(source.x) || 0,
+    y: Number(source.y) || 0,
+    w: Math.max(360, Number(source.w) || item.w || 520),
+    h: Math.max(260, Number(source.h) || item.h || 360),
+  }
+}
+
+function primaryDesktopSize(): { width: number; height: number } {
+  return {
+    width: Math.max(900, Number(window.screen?.availWidth) || window.innerWidth || 1440),
+    height: Math.max(640, Number(window.screen?.availHeight) || window.innerHeight || 900),
+  }
+}
+
+function boundsAreVisibleOnPrimary(bounds: FloatingWindowBounds, screenSize = primaryDesktopSize()): boolean {
+  return bounds.x >= -20
+    && bounds.y >= -20
+    && bounds.x < screenSize.width - 120
+    && bounds.y < screenSize.height - 90
+}
+
+function packDesktopBounds(item: WorkspaceWindow, index: number, screenSize = primaryDesktopSize()): FloatingWindowBounds {
+  const source = readDesktopBounds(item)
+  const x = 18 + (index % 6) * 42
+  const y = 42 + (index % 14) * 30
+  return {
+    x,
+    y,
+    w: Math.max(360, Math.min(source.w, screenSize.width - x - 28)),
+    h: Math.max(260, Math.min(source.h, screenSize.height - y - 42)),
+  }
+}
+
+function prepareDesktopLaunchWindows(workspace: SavedWorkspace): DesktopLaunchWindow[] {
+  const windows = workspace.windows
+    .filter(item => !isRemovedWindowKind(item.kind))
+    .sort((a, b) => a.z - b.z)
+  const screenSize = primaryDesktopSize()
+  const shouldPack = windows.some(item => !boundsAreVisibleOnPrimary(readDesktopBounds(item), screenSize))
+  return windows.map((item, index) => ({
+    item,
+    bounds: shouldPack ? packDesktopBounds(item, index, screenSize) : readDesktopBounds(item),
+  }))
+}
+
 function resolveDesktopWindow(): { workspace: SavedWorkspace; item: WorkspaceWindow } {
   const params = new URLSearchParams(window.location.search)
   const workspace = loadDesktopWorkspaceWindows()
@@ -10087,6 +10166,15 @@ function useDesktopWindowDocumentTitle(item: WorkspaceWindow) {
   }, [item.kind, item.symbol, item.title])
 }
 
+function currentDesktopWindowBounds(): FloatingWindowBounds {
+  return {
+    x: Math.max(0, Math.round(window.screenX || window.screenLeft || 0)),
+    y: Math.max(0, Math.round(window.screenY || window.screenTop || 0)),
+    w: Math.max(320, Math.round(window.outerWidth || window.innerWidth || 520)),
+    h: Math.max(220, Math.round(window.outerHeight || window.innerHeight || 360)),
+  }
+}
+
 export function WorkspaceDesktopWindow() {
   useMarketBootstrap()
   useCeriousTradingStateHydrator()
@@ -10100,6 +10188,33 @@ export function WorkspaceDesktopWindow() {
   const setProvider = useStore(s => s.setMarketProvider)
 
   useDesktopWindowDocumentTitle(item)
+
+  useEffect(() => {
+    const channel = new BroadcastChannel(DESKTOP_WORKSPACE_CHANNEL)
+    const handleMessage = (event: MessageEvent) => {
+      const message = event.data as { type?: string; requestId?: string }
+      if (message.type !== 'snapshot-request' || !message.requestId) return
+      const bounds = currentDesktopWindowBounds()
+      channel.postMessage({
+        type: 'snapshot-response',
+        requestId: message.requestId,
+        item: {
+          ...item,
+          x: bounds.x,
+          y: bounds.y,
+          w: bounds.w,
+          h: bounds.h,
+          floatingBounds: bounds,
+          collapsed: false,
+        } satisfies WorkspaceWindow,
+      })
+    }
+    channel.addEventListener('message', handleMessage)
+    return () => {
+      channel.removeEventListener('message', handleMessage)
+      channel.close()
+    }
+  }, [item])
 
   const selectProduct = (provider: ProviderKey, symbol: string) => {
     const nextProvider = normalizeProviderKey(provider)
@@ -10148,6 +10263,254 @@ export function WorkspaceDesktopWindow() {
   )
 }
 
+function collectDesktopWindowSnapshots(timeoutMs = 700): Promise<WorkspaceWindow[]> {
+  return new Promise(resolve => {
+    const channel = new BroadcastChannel(DESKTOP_WORKSPACE_CHANNEL)
+    const requestId = `snapshot-${epochMs()}-${Math.random().toString(36).slice(2)}`
+    const snapshots = new Map<string, WorkspaceWindow>()
+    const timer = window.setTimeout(() => {
+      channel.removeEventListener('message', handleMessage)
+      channel.close()
+      resolve([...snapshots.values()])
+    }, timeoutMs)
+
+    function handleMessage(event: MessageEvent) {
+      const message = event.data as { type?: string; requestId?: string; item?: WorkspaceWindow }
+      if (message.type !== 'snapshot-response' || message.requestId !== requestId || !message.item) return
+      const normalized = normalizeWorkspace({
+        name: 'snapshot',
+        operator: DEFAULT_OPERATOR,
+        windows: [message.item],
+        rows: [],
+        updatedAt: epochMs(),
+      })
+      const item = normalized?.windows[0]
+      if (item) snapshots.set(item.id, item)
+    }
+
+    channel.addEventListener('message', handleMessage)
+    channel.postMessage({ type: 'snapshot-request', requestId })
+    void timer
+  })
+}
+
+function mergeDesktopSnapshots(base: SavedWorkspace, snapshots: WorkspaceWindow[]): SavedWorkspace {
+  const snapshotById = new Map(snapshots.map(item => [item.id, item]))
+  const mergedWindows = base.windows.map(item => snapshotById.get(item.id) ?? item)
+  snapshots.forEach(item => {
+    if (!mergedWindows.some(existing => existing.id === item.id)) mergedWindows.push(item)
+  })
+  return {
+    ...base,
+    windows: mergedWindows,
+    algoLibrary: loadAlgoLibrary(),
+    algoManager: loadAlgoManagerWorkspaceState(),
+    updatedAt: epochMs(),
+  }
+}
+
+function defaultDesktopWindowForKind(kind: WorkspaceWindowKind, current: SavedWorkspace): WorkspaceWindow {
+  const count = current.windows.filter(item => item.kind === kind).length
+  const seed = defaultWindows('cme').find(item => item.kind === kind) ?? win(kind, 80, 120, 560, 360, count + 1)
+  const bounds = packDesktopBounds(seed, count + 1)
+  return {
+    ...seed,
+    id: `${kind}-${epochMs()}`,
+    title: count > 0 ? `${WINDOW_LABELS[kind]} ${count + 1}` : WINDOW_LABELS[kind],
+    x: bounds.x,
+    y: bounds.y,
+    w: bounds.w,
+    h: bounds.h,
+    z: Math.max(1, ...current.windows.map(item => item.z)) + 1,
+    collapsed: false,
+    provider: current.selectedProvider ?? 'cme',
+    symbol: defaultSymbolForWindowKind(kind, current.selectedSymbol ?? 'ES'),
+    depthLadderSettings: kind === 'depthLadder' ? loadDepthLadderDefaultSettings() : undefined,
+    floatingBounds: bounds,
+  }
+}
+
+async function runOpenFinWindowCommand(command: (() => Promise<void>) | undefined, timeoutMs = 650) {
+  if (!command) return
+  try {
+    await Promise.race([
+      command(),
+      new Promise<void>(resolve => window.setTimeout(resolve, timeoutMs)),
+    ])
+  } catch {
+    // OpenFin window state calls are best-effort during launch.
+  }
+}
+
+async function showOpenFinWindow(windowRef: unknown, bounds?: Pick<FloatingWindowBounds, 'x' | 'y' | 'w' | 'h'>) {
+  if (!windowRef || typeof windowRef !== 'object') return
+  const api = windowRef as {
+    restore?: () => Promise<void>
+    show?: (force?: boolean) => Promise<void>
+    showAt?: (left: number, top: number, force?: boolean) => Promise<void>
+    setBounds?: (bounds: { left: number; top: number; width: number; height: number }) => Promise<void>
+    setAsForeground?: () => Promise<void>
+  }
+  if (bounds) {
+    const compactWindow = bounds.h < 160
+    await runOpenFinWindowCommand(() => api.setBounds?.({
+        left: Math.round(bounds.x),
+        top: Math.round(bounds.y),
+        width: Math.max(compactWindow ? 420 : 320, Math.round(bounds.w)),
+        height: Math.max(compactWindow ? 72 : 220, Math.round(bounds.h)),
+      }) ?? Promise.resolve())
+    await runOpenFinWindowCommand(() => api.showAt?.(Math.round(bounds.x), Math.round(bounds.y), true) ?? Promise.resolve())
+  }
+  await runOpenFinWindowCommand(() => api.show?.(true) ?? Promise.resolve())
+  await runOpenFinWindowCommand(() => api.restore?.() ?? Promise.resolve())
+  await runOpenFinWindowCommand(() => api.setAsForeground?.() ?? Promise.resolve(), 250)
+}
+
+export function OpenFinDesktopToolbar() {
+  const [workspace, setWorkspace] = useState<SavedWorkspace>(() => loadDesktopWorkspaceWindows())
+  const [widgetToAdd, setWidgetToAdd] = useState<WorkspaceWindowKind>('marketData')
+  const [status, setStatus] = useState('Desktop ready')
+
+  useEffect(() => {
+    document.title = 'Cerious Desktop Toolbar'
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    loadDesktopWorkspaceWindowsAsync().then(next => {
+      if (!cancelled) setWorkspace(next)
+    }).catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const saveDesktopWorkspace = async () => {
+    setStatus('Saving...')
+    const snapshots = await collectDesktopWindowSnapshots()
+    const next = mergeDesktopSnapshots(workspace, snapshots)
+    cacheDesktopWorkspace(next)
+    setWorkspace(next)
+    const serverSaved = await saveWorkspaceServerSnapshot(next, 'desktop toolbar save default')
+    setStatus(serverSaved ? `Saved ${snapshots.length} windows` : 'Saved locally; server pending')
+  }
+
+  const addDesktopWindow = async () => {
+    const fin = openFinApi()
+    const nextWindow = defaultDesktopWindowForKind(widgetToAdd, workspace)
+    const icon = `${window.location.origin}/branding/cerious-logo.png`
+    setWorkspace(current => ({ ...current, windows: [...current.windows, nextWindow], updatedAt: epochMs() }))
+    if (!fin?.Window?.create) {
+      window.open(desktopWindowUrl(nextWindow), '_blank', 'noopener,noreferrer')
+      setStatus(`Opened ${WINDOW_LABELS[widgetToAdd]}`)
+      return
+    }
+    const createdWindow = await fin.Window.create({
+      name: `cerious-${nextWindow.id}`,
+      url: desktopWindowUrl(nextWindow),
+      x: Math.round(nextWindow.x),
+      y: Math.round(nextWindow.y),
+      width: Math.round(nextWindow.w),
+      height: Math.round(nextWindow.h),
+      defaultLeft: Math.round(nextWindow.x),
+      defaultTop: Math.round(nextWindow.y),
+      defaultWidth: Math.round(nextWindow.w),
+      defaultHeight: Math.round(nextWindow.h),
+      minWidth: 320,
+      minHeight: 220,
+      frame: true,
+      autoShow: true,
+      state: 'normal',
+      saveWindowState: false,
+      showTaskbarIcon: true,
+      waitForPageLoad: false,
+      icon,
+      customData: {
+        ceriousClient: 'openfin-desktop-window',
+        workspace: workspace.name,
+        windowKind: nextWindow.kind,
+        authority: 'server',
+      },
+    })
+    await showOpenFinWindow(createdWindow, nextWindow.floatingBounds ?? nextWindow)
+    setStatus(`Opened ${WINDOW_LABELS[widgetToAdd]}`)
+  }
+
+  const lockDesktop = () => {
+    const channel = new BroadcastChannel(DESKTOP_WORKSPACE_CHANNEL)
+    channel.postMessage({ type: 'desktop-lock', reason: 'Workspace locked from desktop toolbar' })
+    channel.close()
+    setStatus('Locked')
+  }
+
+  const logoutDesktop = async () => {
+    setStatus('Logging out...')
+    try {
+      await ceriousFetch('/api/auth/logout', { method: 'POST' })
+    } catch {
+      // Browser session logout is best-effort; desktop shell close is handled below.
+    }
+    await openFinApi()?.Application?.getCurrentSync?.().quit?.(true)
+  }
+
+  const shutdownDesktop = async () => {
+    const accepted = window.confirm('Shutdown Cerious services? Shutdown does not cancel working orders. Use CXL ALL or KILL ALL separately if needed.')
+    if (!accepted) return
+    setStatus('Shutdown requested')
+    try {
+      const response = await ceriousFetch('/api/system/shutdown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'desktop toolbar shutdown', confirm: 'SHUTDOWN_CERIOUS' }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || !payload.ok) throw new Error(String(payload.detail || payload.message || `HTTP ${response.status}`))
+      setStatus('Shutdown sent')
+    } catch (error) {
+      setStatus(`Shutdown failed: ${error instanceof Error ? error.message : 'unknown error'}`)
+    }
+  }
+
+  return (
+    <main className="h-screen overflow-hidden border border-surface-border bg-surface-panel px-2 py-2 text-slate-100">
+      <div className="flex h-full items-center gap-2">
+        <img src={ceriousLogo} alt="Cerious Systems" className="h-9 w-9 rounded-sm border border-surface-border bg-surface object-cover" />
+        <div className="min-w-0">
+          <div className="truncate text-[10px] font-black uppercase tracking-wide text-accent">Cerious Desktop</div>
+          <div className="truncate font-mono text-[10px] text-muted">{workspace.name} | {status}</div>
+        </div>
+        <button className="btn-accent px-2 py-1 text-[11px]" onClick={saveDesktopWorkspace}>
+          Save
+        </button>
+        <select
+          className="input-field w-44 py-1 text-[11px]"
+          value={widgetToAdd}
+          onChange={event => setWidgetToAdd(event.target.value as WorkspaceWindowKind)}
+          title="Add desktop window"
+        >
+          {WIDGET_MENU.map(group => (
+            <optgroup key={group.group} label={group.group}>
+              {group.kinds.map(kind => <option key={kind} value={kind}>{WINDOW_LABELS[kind]}</option>)}
+            </optgroup>
+          ))}
+        </select>
+        <button className="rounded-sm border border-surface-border bg-surface-card px-2 py-1 text-[11px] font-bold text-slate-200 hover:border-accent hover:text-accent" onClick={addDesktopWindow}>
+          Add
+        </button>
+        <button className="rounded-sm border border-surface-border bg-surface-card px-2 py-1 text-[11px] font-bold text-slate-200 hover:border-accent hover:text-accent" onClick={lockDesktop}>
+          Lock
+        </button>
+        <button className="rounded-sm border border-surface-border bg-surface-card px-2 py-1 text-[11px] font-bold text-slate-200 hover:border-accent hover:text-accent" onClick={logoutDesktop}>
+          Logout
+        </button>
+        <button className="rounded-sm border border-down/60 bg-down/15 px-2 py-1 text-[11px] font-bold text-red-200 hover:border-down hover:text-white" onClick={shutdownDesktop}>
+          Shutdown
+        </button>
+      </div>
+    </main>
+  )
+}
+
 export function OpenFinDesktopLauncher() {
   const [status, setStatus] = useState('Opening Cerious Desktop windows...')
   const [launcherWorkspace, setLauncherWorkspace] = useState<SavedWorkspace>(() => loadDesktopWorkspaceWindows())
@@ -10159,9 +10522,7 @@ export function OpenFinDesktopLauncher() {
       const workspace = await loadDesktopWorkspaceWindowsAsync()
       if (cancelled) return
       setLauncherWorkspace(workspace)
-      const windows = workspace.windows
-        .filter(item => !isRemovedWindowKind(item.kind))
-        .sort((a, b) => a.z - b.z)
+      const windows = prepareDesktopLaunchWindows(workspace)
 
       if (!windows.length) {
         setStatus('No saved workspace windows found.')
@@ -10174,37 +10535,79 @@ export function OpenFinDesktopLauncher() {
       }
 
       const createWindow = fin.Window.create.bind(fin.Window)
-      const icon = `${window.location.origin}/branding/cerious-logo.ico`
+      const icon = `${window.location.origin}/branding/cerious-logo.png`
       try {
-        const results = await Promise.allSettled(windows.map(item => {
-          const bounds = item.floatingBounds ?? item
-          return createWindow({
-            name: `cerious-${item.id}`,
-            url: desktopWindowUrl(item),
-            defaultLeft: Math.round(bounds.x),
-            defaultTop: Math.round(bounds.y),
-            defaultWidth: Math.max(360, Math.round(bounds.w)),
-            defaultHeight: Math.max(260, Math.round(bounds.h)),
-            minWidth: 320,
-            minHeight: 220,
-            frame: true,
-            autoShow: true,
-            saveWindowState: false,
-            waitForPageLoad: false,
-            icon,
-            customData: {
-              ceriousClient: 'openfin-desktop-window',
-              workspace: workspace.name,
-              windowKind: item.kind,
-              authority: 'server',
-            },
-          })
-        }))
+        const toolbarWindow = await createWindow({
+          name: 'cerious-desktop-toolbar',
+          url: desktopToolbarUrl(),
+          x: 20,
+          y: 20,
+          width: 620,
+          height: 92,
+          defaultLeft: 20,
+          defaultTop: 20,
+          defaultWidth: 620,
+          defaultHeight: 92,
+          minWidth: 460,
+          minHeight: 72,
+          frame: true,
+          autoShow: true,
+          state: 'normal',
+          saveWindowState: false,
+          showTaskbarIcon: true,
+          waitForPageLoad: false,
+          icon,
+          customData: {
+            ceriousClient: 'openfin-desktop-toolbar',
+            workspace: workspace.name,
+            authority: 'server',
+          },
+        })
+        await showOpenFinWindow(toolbarWindow, { x: 20, y: 20, w: 620, h: 92 })
+        let opened = 0
+        let failed = 0
+        for (const { item, bounds } of windows) {
+          if (cancelled) return
+          try {
+            const createdWindow = await createWindow({
+              name: `cerious-${item.id}`,
+              url: desktopWindowUrl(item),
+              x: Math.round(bounds.x),
+              y: Math.round(bounds.y),
+              width: Math.max(360, Math.round(bounds.w)),
+              height: Math.max(260, Math.round(bounds.h)),
+              defaultLeft: Math.round(bounds.x),
+              defaultTop: Math.round(bounds.y),
+              defaultWidth: Math.max(360, Math.round(bounds.w)),
+              defaultHeight: Math.max(260, Math.round(bounds.h)),
+              minWidth: 320,
+              minHeight: 220,
+              frame: true,
+              autoShow: true,
+              state: 'normal',
+              saveWindowState: false,
+              showTaskbarIcon: true,
+              waitForPageLoad: false,
+              icon,
+              customData: {
+                ceriousClient: 'openfin-desktop-window',
+                workspace: workspace.name,
+                windowKind: item.kind,
+                authority: 'server',
+              },
+            })
+            await showOpenFinWindow(createdWindow, bounds)
+            opened += 1
+            setStatus(`Opened toolbar and ${opened}/${windows.length} Cerious Desktop windows.`)
+            await new Promise(resolve => window.setTimeout(resolve, 75))
+          } catch {
+            failed += 1
+          }
+        }
         if (cancelled) return
-        const failed = results.filter(item => item.status === 'rejected').length
         setStatus(failed
-          ? `Opened ${windows.length - failed} Cerious Desktop windows; ${failed} failed.`
-          : `Opened ${windows.length} Cerious Desktop windows.`)
+          ? `Opened toolbar and ${opened} Cerious Desktop windows; ${failed} failed.`
+          : `Opened toolbar and ${windows.length} Cerious Desktop windows.`)
         if (failed === 0) await fin.Window.getCurrentSync?.().hide?.()
       } catch (error) {
         setStatus(`Desktop launch failed: ${error instanceof Error ? error.message : 'unknown error'}`)

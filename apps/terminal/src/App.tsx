@@ -1,6 +1,6 @@
 ﻿import { useEffect } from 'react'
 import { Toaster } from 'react-hot-toast'
-import { OpenFinDesktopLauncher, WorkspaceCanvas, WorkspaceDesktopWindow } from './components/WorkspaceCanvas'
+import { OpenFinDesktopLauncher, OpenFinDesktopToolbar, WorkspaceCanvas, WorkspaceDesktopWindow } from './components/WorkspaceCanvas'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { PortalGate } from './components/PortalGate'
 import { useBroadcastSync } from './hooks/useBroadcastSync'
@@ -45,7 +45,19 @@ const toasterStyle = {
 export default function App() {
   const params = new URLSearchParams(window.location.search)
   const isOpenFinDesktopLauncher = params.get('cerious_client') === 'openfin' && params.get('cerious_desktop') === 'launcher'
+  const isOpenFinDesktopToolbar = params.get('cerious_client') === 'openfin' && params.get('cerious_desktop') === 'toolbar'
   const desktopWindowKind = params.get('cerious_window')
+
+  if (isOpenFinDesktopToolbar) {
+    return (
+      <ErrorBoundary>
+        <PortalGate>
+          <OpenFinDesktopToolbar />
+        </PortalGate>
+        <Toaster position="bottom-right" toastOptions={{ style: toasterStyle }} />
+      </ErrorBoundary>
+    )
+  }
 
   if (isOpenFinDesktopLauncher) {
     return (

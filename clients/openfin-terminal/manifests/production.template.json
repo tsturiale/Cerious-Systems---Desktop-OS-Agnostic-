@@ -6,7 +6,7 @@
     "company": "Cerious Systems",
     "description": "Cerious Desktop",
     "name": "Cerious Desktop",
-    "icon": "https://YOUR_PRODUCTION_TERMINAL_HOST/branding/cerious-logo.ico"
+    "icon": "https://YOUR_PRODUCTION_TERMINAL_HOST/branding/cerious-logo.png"
   },
   "startup_app": {
     "uuid": "cerious-systems-desktop-production",
@@ -16,15 +16,15 @@
     "defaultCentered": true,
     "defaultWidth": 1720,
     "defaultHeight": 1040,
-    "minWidth": 1100,
-    "minHeight": 720,
+    "minWidth": 360,
+    "minHeight": 240,
     "frame": true,
     "resizable": true,
     "maximizable": true,
-    "saveWindowState": true,
+    "saveWindowState": false,
     "showTaskbarIcon": true,
     "waitForPageLoad": true,
-    "icon": "https://YOUR_PRODUCTION_TERMINAL_HOST/branding/cerious-logo.ico",
+    "icon": "https://YOUR_PRODUCTION_TERMINAL_HOST/branding/cerious-logo.png",
     "customData": {
       "ceriousClient": "openfin-desktop-launcher",
       "backendProfile": "production",
