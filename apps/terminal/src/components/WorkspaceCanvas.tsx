@@ -1699,6 +1699,17 @@ function ceriousTradingSnapshotUnavailable(payload?: Partial<CeriousPositionsOrd
   return (payload.simMessages ?? []).some(message => /EXCHANGE STATE UNAVAILABLE|STATE UNAVAILABLE/i.test(String(message)))
 }
 
+async function fetchServerOrderSummary(): Promise<CeriousPositionsOrdersState['summary'] | null> {
+  try {
+    const response = await ceriousFetch('/api/cerious/order-state', { cache: 'no-store' })
+    if (!response.ok) return null
+    const payload = await response.json() as Partial<CeriousPositionsOrdersState>
+    return payload.summary ?? payload.state?.summary ?? null
+  } catch {
+    return null
+  }
+}
+
 type CeriousNewsItem = {
   id: string
   source: string
@@ -10035,7 +10046,7 @@ function fallbackDesktopWorkspace(): SavedWorkspace {
   return {
     name: 'Cerious Desktop',
     operator: DEFAULT_OPERATOR,
-    windows: defaultWindows('cme'),
+    windows: [],
     rows: [],
     alerts: [],
     selectedProvider: 'cme',
@@ -10082,6 +10093,12 @@ function cacheDesktopWorkspace(workspace: SavedWorkspace): void {
   window.localStorage.setItem(DESKTOP_WORKSPACE_NAMES_KEY, JSON.stringify(saved))
 }
 
+function clearDesktopWorkspaceCache(): void {
+  window.localStorage.removeItem(DESKTOP_STORAGE_KEY)
+  window.localStorage.removeItem(DESKTOP_DEFAULT_WORKSPACE_KEY)
+  window.localStorage.removeItem(DESKTOP_WORKSPACE_NAMES_KEY)
+}
+
 function loadDesktopActiveWorkspace(): SavedWorkspace | null {
   try {
     const activeRaw = window.localStorage.getItem(DESKTOP_STORAGE_KEY)
@@ -10120,20 +10137,15 @@ function loadDesktopWorkspaceWindows(): SavedWorkspace {
 }
 
 async function loadDesktopWorkspaceWindowsAsync(): Promise<SavedWorkspace> {
-  const [serverSaved, recovered] = await Promise.all([
-    fetchServerSavedWorkspaces('desktop'),
-    fetchRecoveredWorkspaces(),
-  ])
-  const serverWorkspace = selectDesktopWorkspace([...serverSaved, ...recovered])
+  const serverSaved = await fetchServerSavedWorkspaces('desktop')
+  const serverWorkspace = selectDesktopWorkspace(serverSaved)
   if (serverWorkspace) {
     cacheDesktopWorkspace(serverWorkspace)
     return serverWorkspace
   }
 
-  const localWorkspace = loadDesktopActiveWorkspace()
-  if (localWorkspace && desktopWindowCount(localWorkspace) > 1) return localWorkspace
-
   const fallback = fallbackDesktopWorkspace()
+  clearDesktopWorkspaceCache()
   cacheDesktopWorkspace(fallback)
   return fallback
 }
@@ -10390,14 +10402,9 @@ function collectDesktopWindowSnapshots(timeoutMs = 2400): Promise<WorkspaceWindo
 }
 
 function mergeDesktopSnapshots(base: SavedWorkspace, snapshots: WorkspaceWindow[]): SavedWorkspace {
-  const snapshotById = new Map(snapshots.map(item => [item.id, item]))
-  const mergedWindows = base.windows.map(item => snapshotById.get(item.id) ?? item)
-  snapshots.forEach(item => {
-    if (!mergedWindows.some(existing => existing.id === item.id)) mergedWindows.push(item)
-  })
   return {
     ...base,
-    windows: mergedWindows,
+    windows: snapshots.sort((a, b) => a.z - b.z),
     algoLibrary: loadAlgoLibrary(),
     algoManager: loadAlgoManagerWorkspaceState(),
     updatedAt: epochMs(),
@@ -10551,6 +10558,15 @@ export function OpenFinDesktopToolbar() {
   const logoutDesktop = async () => {
     setStatus('Saving workspace before logout...')
     await persistDesktopWorkspace('desktop toolbar logout save')
+    const summary = await fetchServerOrderSummary()
+    const workingOrderCount = Number(summary?.workingOrderCount ?? 0)
+    if (workingOrderCount > 0) {
+      const accepted = window.confirm(`Log out of Cerious Desktop? ${workingOrderCount} working order${workingOrderCount === 1 ? '' : 's'} will remain working on the server.`)
+      if (!accepted) {
+        setStatus('Logout cancelled')
+        return
+      }
+    }
     setStatus('Logging out...')
     try {
       await ceriousFetch('/api/auth/logout', { method: 'POST' })
@@ -10561,12 +10577,27 @@ export function OpenFinDesktopToolbar() {
   }
 
   const shutdownDesktop = async () => {
-    const accepted = window.confirm('Shutdown Cerious services? Shutdown does not cancel working orders. Use CXL ALL or KILL ALL separately if needed.')
+    const summary = await fetchServerOrderSummary()
+    const workingOrderCount = Number(summary?.workingOrderCount ?? 0)
+    const accepted = window.confirm(`Shutdown and reset Cerious services? This resets the local trading session, clears working orders, clears runtime caches, and restarts the services on the next launch.${workingOrderCount > 0 ? ` You currently have ${workingOrderCount} working order${workingOrderCount === 1 ? '' : 's'} on the server.` : ''}`)
     if (!accepted) return
     setStatus('Saving workspace before shutdown...')
     await persistDesktopWorkspace('desktop toolbar shutdown save')
-    setStatus('Shutdown requested')
+    setStatus('Resetting session...')
     try {
+      const resetResponse = await ceriousFetch('/api/cerious/session/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: 'desktop toolbar shutdown reset',
+          confirm: 'RESET_TRADING_SESSION',
+          scope: 'simulation',
+          clearFills: true,
+        }),
+      })
+      const resetPayload = await resetResponse.json().catch(() => ({}))
+      if (!resetResponse.ok || !resetPayload.ok) throw new Error(String(resetPayload.detail || resetPayload.message || `reset HTTP ${resetResponse.status}`))
+      setStatus('Shutdown requested')
       const response = await ceriousFetch('/api/system/shutdown', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -10575,6 +10606,7 @@ export function OpenFinDesktopToolbar() {
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || !payload.ok) throw new Error(String(payload.detail || payload.message || `HTTP ${response.status}`))
       setStatus('Shutdown sent')
+      await openFinApi()?.Application?.getCurrentSync?.().quit?.(true)
     } catch (error) {
       setStatus(`Shutdown failed: ${error instanceof Error ? error.message : 'unknown error'}`)
     }
@@ -10633,11 +10665,6 @@ export function OpenFinDesktopLauncher() {
       setLauncherWorkspace(workspace)
       const windows = prepareDesktopLaunchWindows(workspace)
 
-      if (!windows.length) {
-        setStatus('No saved workspace windows found.')
-        return
-      }
-
       if (!fin?.Window?.create) {
         setStatus('OpenFin runtime unavailable. Use the links below to open standalone windows.')
         return
@@ -10674,6 +10701,11 @@ export function OpenFinDesktopLauncher() {
           },
         })
         await showOpenFinWindow(toolbarWindow, toolbarBounds)
+        if (!windows.length) {
+          setStatus('Opened Cerious Desktop toolbar. No desktop windows are saved yet.')
+          await fin.Window.getCurrentSync?.().hide?.()
+          return
+        }
         let opened = 0
         let failed = 0
         for (const { item, bounds } of windows) {
