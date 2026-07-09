@@ -775,8 +775,10 @@ bool save_desktop_workspace_json(const fs::path& data, const std::string& body) 
     const auto dir = desktop_workspace_dir(data);
     const auto workspace_id = desktop_workspace_id_from_json(body);
     const auto keyed_path = dir / (workspace_id + ".json");
+    const auto active_path = dir / (std::string{kDefaultDesktopWorkspaceId} + ".json");
     return write_text_atomic(dir / "native-last-save.json", body)
-        && write_text_atomic(keyed_path, workspace);
+        && write_text_atomic(keyed_path, workspace)
+        && write_text_atomic(active_path, workspace);
 }
 
 void replace_all(std::string& value, const std::string& from, const std::string& to) {

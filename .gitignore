@@ -5,6 +5,7 @@ __pycache__/
 data/credentials/*.json
 data/logs/
 data/runtime/
+data/desktop-workspaces/
 data/fills/backups/
 data/algo-definitions/_backups/
 data/algo-definitions/_deleted/

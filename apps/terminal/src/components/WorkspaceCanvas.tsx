@@ -709,34 +709,6 @@ function defaultSymbolForWindowKind(kind: WorkspaceWindowKind, fallback: string)
   return fallback
 }
 
-function ensureLegacyChartWindows(windows: WorkspaceWindow[]): WorkspaceWindow[] {
-  if (windows.some(item => item.kind === 'charts' || item.kind === 'relativeSpreadCharts')) return windows
-  const maxZ = windows.reduce((max, item) => Math.max(max, item.z), 0)
-  return [
-    ...windows,
-    {
-      ...win('charts', 588, 58, 620, 430, maxZ + 1),
-      id: `charts-migrated-${epochMs()}`,
-      z: maxZ + 1,
-    },
-  ]
-}
-
-function ensureFuturesDepthLadderWindow(windows: WorkspaceWindow[]): WorkspaceWindow[] {
-  if (windows.some(item => item.kind === 'depthLadder')) return windows
-  const maxZ = windows.reduce((max, item) => Math.max(max, item.z), 0)
-  return [
-    ...windows,
-    {
-      ...win('depthLadder', 1220, 58, 600, 655, maxZ + 1),
-      id: `depth-ladder-migrated-${epochMs()}`,
-      symbol: 'ES',
-      provider: 'cme',
-      z: maxZ + 1,
-    },
-  ]
-}
-
 function displayNumber(value: unknown, fallback = 0): number {
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
@@ -899,7 +871,7 @@ function applyWorkspaceAlgoSnapshot(workspace: SavedWorkspace): void {
 
 function normalizeWorkspace(raw: Partial<SavedWorkspace> | null | undefined): SavedWorkspace | null {
   if (!raw || !Array.isArray(raw.windows)) return null
-  const windows = ensureFuturesDepthLadderWindow(ensureLegacyChartWindows(raw.windows.filter(item => !isRemovedWindowKind(item.kind)))).map(item => ({
+  const windows = raw.windows.filter(item => !isRemovedWindowKind(item.kind)).map(item => ({
     ...item,
     provider: normalizeProviderKey(item.provider as ProviderKey | undefined),
     desktopState: normalizeDesktopWindowState(item.desktopState ?? (item.collapsed ? 'minimized' : 'normal')),
@@ -1067,14 +1039,15 @@ async function saveWorkspaceServerSnapshot(next: SavedWorkspace, reason: string,
 
 async function saveDesktopWorkspaceServerSnapshot(next: SavedWorkspace, reason: string): Promise<boolean> {
   try {
-    const desktopWorkspace = { ...next, workspaceId: DESKTOP_WORKSPACE_ID }
+    const workspaceId = next.workspaceId || desktopWorkspaceIdFromName(next.name)
+    const desktopWorkspace = { ...next, workspaceId }
     const response = await ceriousFetch('/api/desktop/workspace/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         workspace: desktopWorkspace,
         reason,
-        workspaceId: DESKTOP_WORKSPACE_ID,
+        workspaceId,
         workspaceScope: 'desktop',
         sessionToken: workspaceSessionToken(),
       }),
@@ -1082,6 +1055,21 @@ async function saveDesktopWorkspaceServerSnapshot(next: SavedWorkspace, reason: 
     return response.ok
   } catch {
     return false
+  }
+}
+
+async function fetchDesktopSavedWorkspaces(): Promise<SavedWorkspace[]> {
+  try {
+    const response = await ceriousFetch('/api/desktop/workspaces', { cache: 'no-store' })
+    if (!response.ok) return []
+    const payload = await response.json() as RecoveredWorkspacesPayload
+    if (!Array.isArray(payload.workspaces)) return []
+    return payload.workspaces
+      .map(normalizeWorkspace)
+      .filter((item): item is SavedWorkspace => !!item)
+      .map(withDesktopWorkspaceId)
+  } catch {
+    return []
   }
 }
 
@@ -10075,10 +10063,19 @@ function desktopToolbarUrl(): string {
   return `${window.location.origin}${window.location.pathname}?${params.toString()}`
 }
 
+function desktopWorkspaceIdFromName(name: string): string {
+  const id = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return id || DESKTOP_WORKSPACE_ID
+}
+
 function fallbackDesktopWorkspace(): SavedWorkspace {
   return {
     workspaceId: DESKTOP_WORKSPACE_ID,
-    name: 'Cerious Desktop',
+    name: 'Blank Workspace',
     operator: DEFAULT_OPERATOR,
     windows: [],
     rows: [],
@@ -10090,7 +10087,7 @@ function fallbackDesktopWorkspace(): SavedWorkspace {
 }
 
 function withDesktopWorkspaceId(workspace: SavedWorkspace): SavedWorkspace {
-  return { ...workspace, workspaceId: DESKTOP_WORKSPACE_ID }
+  return { ...workspace, workspaceId: workspace.workspaceId || desktopWorkspaceIdFromName(workspace.name) }
 }
 
 function loadDesktopWorkspaceWindows(): SavedWorkspace {
@@ -10499,6 +10496,7 @@ async function showOpenFinWindow(windowRef: unknown, bounds?: Pick<FloatingWindo
 
 export function OpenFinDesktopToolbar() {
   const [workspace, setWorkspace] = useState<SavedWorkspace>(() => loadDesktopWorkspaceWindows())
+  const [savedWorkspaces, setSavedWorkspaces] = useState<SavedWorkspace[]>([])
   const [widgetToAdd, setWidgetToAdd] = useState<WorkspaceWindowKind>('marketData')
   const [status, setStatus] = useState('Desktop ready')
 
@@ -10508,8 +10506,10 @@ export function OpenFinDesktopToolbar() {
 
   useEffect(() => {
     let cancelled = false
-    loadDesktopWorkspaceWindowsAsync().then(next => {
-      if (!cancelled) setWorkspace(next)
+    Promise.all([loadDesktopWorkspaceWindowsAsync(), fetchDesktopSavedWorkspaces()]).then(([next, savedList]) => {
+      if (cancelled) return
+      setWorkspace(next)
+      setSavedWorkspaces(savedList)
     }).catch(() => undefined)
     return () => {
       cancelled = true
@@ -10519,12 +10519,14 @@ export function OpenFinDesktopToolbar() {
   const persistDesktopWorkspace = async (reason: string) => {
     setStatus('Saving...')
     const snapshots = await collectDesktopWindowSnapshots()
+    const workspaceId = workspace.workspaceId || desktopWorkspaceIdFromName(workspace.name)
     const next = {
-      ...mergeDesktopSnapshots(workspace, snapshots),
+      ...mergeDesktopSnapshots({ ...workspace, workspaceId }, snapshots),
       desktopToolbarBounds: currentDesktopWindowBounds(),
     }
     setWorkspace(next)
     const serverSaved = await saveDesktopWorkspaceServerSnapshot(next, reason)
+    if (serverSaved) setSavedWorkspaces(await fetchDesktopSavedWorkspaces())
     return { snapshots, serverSaved }
   }
 
@@ -10572,6 +10574,26 @@ export function OpenFinDesktopToolbar() {
     })
     await showOpenFinWindow(createdWindow, nextWindow.floatingBounds ?? nextWindow)
     setStatus(`Opened ${WINDOW_LABELS[widgetToAdd]}`)
+  }
+
+  const loadDesktopWorkspace = async (workspaceId: string) => {
+    if (!workspaceId) return
+    setStatus('Loading...')
+    try {
+      const params = new URLSearchParams({ workspaceId })
+      const response = await ceriousFetch(`/api/desktop/workspace?${params.toString()}`, { cache: 'no-store' })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const payload = await response.json() as DesktopWorkspacePayload
+      const next = normalizeWorkspace(payload.workspace)
+      if (!next) throw new Error('workspace not found')
+      const normalized = withDesktopWorkspaceId(next)
+      setWorkspace(normalized)
+      await saveDesktopWorkspaceServerSnapshot(normalized, 'desktop toolbar activate workspace')
+      setSavedWorkspaces(await fetchDesktopSavedWorkspaces())
+      setStatus(`Loaded ${normalized.name}`)
+    } catch (error) {
+      setStatus(`Load failed: ${error instanceof Error ? error.message : 'unknown error'}`)
+    }
   }
 
   const lockDesktop = () => {
@@ -10643,11 +10665,35 @@ export function OpenFinDesktopToolbar() {
         <img src={ceriousLogo} alt="Cerious Systems" className="h-9 w-9 rounded-sm border border-surface-border bg-surface object-cover" />
         <div className="min-w-0">
           <div className="truncate text-[10px] font-black uppercase tracking-wide text-accent">Cerious Desktop</div>
-          <div className="truncate font-mono text-[10px] text-muted">{workspace.name} | {status}</div>
+          <div className="truncate font-mono text-[10px] text-muted">{status}</div>
         </div>
+        <input
+          className="input-field w-40 py-1 text-[11px]"
+          value={workspace.name}
+          onChange={event => setWorkspace(current => ({
+            ...current,
+            name: event.target.value,
+            workspaceId: desktopWorkspaceIdFromName(event.target.value),
+            updatedAt: epochMs(),
+          }))}
+          title="Desktop workspace name"
+        />
         <button className="btn-accent px-2 py-1 text-[11px]" onClick={saveDesktopWorkspace}>
           Save
         </button>
+        <select
+          className="input-field w-40 py-1 text-[11px]"
+          value={workspace.workspaceId || ''}
+          onChange={event => loadDesktopWorkspace(event.target.value)}
+          title="Load saved desktop workspace"
+        >
+          <option value="">Load workspace...</option>
+          {savedWorkspaces.map(item => (
+            <option key={item.workspaceId || desktopWorkspaceIdFromName(item.name)} value={item.workspaceId || desktopWorkspaceIdFromName(item.name)}>
+              {item.name}
+            </option>
+          ))}
+        </select>
         <select
           className="input-field w-44 py-1 text-[11px]"
           value={widgetToAdd}
