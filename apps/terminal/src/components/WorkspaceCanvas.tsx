@@ -549,13 +549,12 @@ const WINDOW_LABELS: Record<WorkspaceWindowKind, string> = {
 }
 
 const WIDGET_MENU: Array<{ group: string; kinds: WorkspaceWindowKind[] }> = [
-  { group: 'Cerious Core', kinds: ['marketData', 'depthLadder', 'positionsOrders', 'fills', 'auditTrail'] },
-  { group: 'Daily Summary', kinds: ['dailySummary'] },
-  { group: 'GOOSE', kinds: ['goose'] },
+  { group: 'Cerious Core', kinds: ['marketData', 'depthLadder', 'fills', 'auditTrail'] },
+  { group: 'Research & Governance', kinds: ['dailySummary', 'goose', 'modelResearchGovernance'] },
   { group: 'Spread Signals', kinds: ['spreadConfigurations', 'spreadBuilder', 'relativeSpreadCharts', 'relativeSpreadVisuals', 'liveSpreadSignals', 'atrZScoreEngine', 'crossSpreadOpportunityMap'] },
-  { group: 'Research & Risk', kinds: ['macroRegimeSummary', 'tradeAnalytics', 'notionalCalculator', 'executionRules', 'orderLayeringTechniques', 'moneyManagement', 'riskChecklist', 'sourceNotes', 'modelResearchGovernance'] },
+  { group: 'Research & Risk', kinds: ['macroRegimeSummary', 'tradeAnalytics', 'notionalCalculator', 'executionRules', 'orderLayeringTechniques', 'moneyManagement', 'riskChecklist', 'sourceNotes'] },
   { group: 'News', kinds: ['streamingNews'] },
-  { group: 'Trading', kinds: ['order', 'alerts', 'liquidityMap'] },
+  { group: 'Trading', kinds: ['order', 'alerts'] },
   { group: 'Algos', kinds: ['algoBuilder', 'algoManager'] },
   { group: 'Charts', kinds: ['charts'] },
   { group: 'System', kinds: ['liveApiArchitecture', 'serviceMap'] },
@@ -576,6 +575,8 @@ const REMOVED_WINDOW_PATTERNS = [
   new RegExp(['^p', 'tb'].join(''), 'i'),
   new RegExp(['^g', 'reeks$'].join(''), 'i'),
   new RegExp(['^the', 'oQuoter$'].join(''), 'i'),
+  /^liquidityMap$/i,
+  /^positionsOrders$/i,
   /^knowledge$/i,
 ]
 
@@ -669,7 +670,6 @@ function defaultWindows(template: WorkspaceTemplate = 'cme'): WorkspaceWindow[] 
     win('order', 16, 386, 370, 430, 4),
     win('fills', 398, 500, 390, 310, 5),
     win('alerts', 800, 500, 400, 310, 6),
-    win('liquidityMap', 16, 830, 370, 290, 11),
     win('serviceMap', 398, 1134, 520, 260, 12),
     win('algoManager', 930, 1134, 430, 300, 13),
     win('spreadConfigurations', 1372, 1134, 448, 300, 14),
