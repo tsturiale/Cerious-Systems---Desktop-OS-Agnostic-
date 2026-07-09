@@ -470,6 +470,9 @@ type ProductOption = {
 const STORAGE_KEY = 'cerious.workspace.desktop.v1'
 const WORKSPACE_NAMES_KEY = 'cerious.workspace.names.v1'
 const DEFAULT_WORKSPACE_KEY = 'cerious.workspace.default.v1'
+const DESKTOP_STORAGE_KEY = 'cerious.openfin.workspace.active.v1'
+const DESKTOP_WORKSPACE_NAMES_KEY = 'cerious.openfin.workspace.names.v1'
+const DESKTOP_DEFAULT_WORKSPACE_KEY = 'cerious.openfin.workspace.default.v1'
 const WORKSPACE_BACKUPS_KEY = 'cerious.workspace.backups.v1'
 const WORKSPACE_SESSION_TOKEN_KEY = 'cerious.workspace.sessionToken.v1'
 const TED_S_DEFAULT_RECOVERY_FILE = 'leveldb-07-ted-s.json'
@@ -895,7 +898,7 @@ function normalizeWorkspace(raw: Partial<SavedWorkspace> | null | undefined): Sa
   const windows = ensureFuturesDepthLadderWindow(ensureLegacyChartWindows(raw.windows.filter(item => !isRemovedWindowKind(item.kind)))).map(item => ({
     ...item,
     provider: normalizeProviderKey(item.provider as ProviderKey | undefined),
-    desktopState: normalizeDesktopWindowState(item.desktopState),
+    desktopState: normalizeDesktopWindowState(item.desktopState ?? (item.collapsed ? 'minimized' : 'normal')),
     ...(item.kind === 'depthLadder' && item.depthLadderSettings
       ? { depthLadderSettings: normalizeDepthLadderSettings(item.depthLadderSettings) }
       : {}),
@@ -1037,7 +1040,7 @@ function ceriousFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise
   })
 }
 
-async function saveWorkspaceServerSnapshot(next: SavedWorkspace, reason: string): Promise<boolean> {
+async function saveWorkspaceServerSnapshot(next: SavedWorkspace, reason: string, workspaceScope: 'cloud' | 'desktop' = 'cloud'): Promise<boolean> {
   try {
     const response = await ceriousFetch('/api/workspaces/save', {
       method: 'POST',
@@ -1045,6 +1048,7 @@ async function saveWorkspaceServerSnapshot(next: SavedWorkspace, reason: string)
       body: JSON.stringify({
         workspace: next,
         reason,
+        workspaceScope,
         sessionToken: workspaceSessionToken(),
       }),
     })
@@ -1068,10 +1072,13 @@ async function fetchRecoveredWorkspaces(): Promise<SavedWorkspace[]> {
   }
 }
 
-async function fetchServerSavedWorkspaces(): Promise<SavedWorkspace[]> {
+async function fetchServerSavedWorkspaces(workspaceScope: 'cloud' | 'desktop' = 'cloud'): Promise<SavedWorkspace[]> {
   try {
     const token = workspaceSessionToken()
-    const suffix = token ? `?token=${encodeURIComponent(token)}` : ''
+    const params = new URLSearchParams()
+    if (token) params.set('token', token)
+    if (workspaceScope === 'desktop') params.set('scope', 'desktop')
+    const suffix = params.toString() ? `?${params.toString()}` : ''
     const response = await ceriousFetch(`/api/workspaces/saved${suffix}`, { cache: 'no-store' })
     if (!response.ok) return []
     const payload = await response.json() as RecoveredWorkspacesPayload
@@ -10069,21 +10076,52 @@ function selectDesktopWorkspace(candidates: SavedWorkspace[]): SavedWorkspace | 
 }
 
 function cacheDesktopWorkspace(workspace: SavedWorkspace): void {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace))
-  window.localStorage.setItem(DEFAULT_WORKSPACE_KEY, JSON.stringify(workspace))
-  const saved = upsertSavedWorkspace(loadSavedWorkspaces(), workspace)
-  window.localStorage.setItem(WORKSPACE_NAMES_KEY, JSON.stringify(saved))
+  window.localStorage.setItem(DESKTOP_STORAGE_KEY, JSON.stringify(workspace))
+  window.localStorage.setItem(DESKTOP_DEFAULT_WORKSPACE_KEY, JSON.stringify(workspace))
+  const saved = upsertSavedWorkspace(loadDesktopSavedWorkspaces(), workspace)
+  window.localStorage.setItem(DESKTOP_WORKSPACE_NAMES_KEY, JSON.stringify(saved))
+}
+
+function loadDesktopActiveWorkspace(): SavedWorkspace | null {
+  try {
+    const activeRaw = window.localStorage.getItem(DESKTOP_STORAGE_KEY)
+    if (activeRaw) {
+      const active = normalizeWorkspace(JSON.parse(activeRaw) as Partial<SavedWorkspace>)
+      if (active) return active
+    }
+    const defaultRaw = window.localStorage.getItem(DESKTOP_DEFAULT_WORKSPACE_KEY)
+    if (!defaultRaw) return null
+    return normalizeWorkspace(JSON.parse(defaultRaw) as Partial<SavedWorkspace>)
+  } catch {
+    return null
+  }
+}
+
+function loadDesktopSavedWorkspaces(): SavedWorkspace[] {
+  try {
+    const raw = window.localStorage.getItem(DESKTOP_WORKSPACE_NAMES_KEY)
+    const parsed = raw ? JSON.parse(raw) as Array<Partial<SavedWorkspace>> : []
+    const indexed = Array.isArray(parsed)
+      ? parsed
+          .map(normalizeWorkspace)
+          .filter((item): item is SavedWorkspace => !!item)
+      : []
+    const active = loadDesktopActiveWorkspace()
+    return active ? upsertSavedWorkspace(indexed, active) : indexed.sort((a, b) => b.updatedAt - a.updatedAt)
+  } catch {
+    return []
+  }
 }
 
 function loadDesktopWorkspaceWindows(): SavedWorkspace {
-  const workspace = loadActiveWorkspace()
+  const workspace = loadDesktopActiveWorkspace()
   if (workspace && desktopWindowCount(workspace) > 1) return workspace
   return fallbackDesktopWorkspace()
 }
 
 async function loadDesktopWorkspaceWindowsAsync(): Promise<SavedWorkspace> {
   const [serverSaved, recovered] = await Promise.all([
-    fetchServerSavedWorkspaces(),
+    fetchServerSavedWorkspaces('desktop'),
     fetchRecoveredWorkspaces(),
   ])
   const serverWorkspace = selectDesktopWorkspace([...serverSaved, ...recovered])
@@ -10092,7 +10130,7 @@ async function loadDesktopWorkspaceWindowsAsync(): Promise<SavedWorkspace> {
     return serverWorkspace
   }
 
-  const localWorkspace = loadActiveWorkspace()
+  const localWorkspace = loadDesktopActiveWorkspace()
   if (localWorkspace && desktopWindowCount(localWorkspace) > 1) return localWorkspace
 
   const fallback = fallbackDesktopWorkspace()
@@ -10453,7 +10491,7 @@ export function OpenFinDesktopToolbar() {
     }
     cacheDesktopWorkspace(next)
     setWorkspace(next)
-    const serverSaved = await saveWorkspaceServerSnapshot(next, reason)
+    const serverSaved = await saveWorkspaceServerSnapshot(next, reason, 'desktop')
     return { snapshots, serverSaved }
   }
 
@@ -10641,6 +10679,7 @@ export function OpenFinDesktopLauncher() {
         for (const { item, bounds } of windows) {
           if (cancelled) return
           try {
+            const desktopState = normalizeDesktopWindowState(item.desktopState)
             const createdWindow = await createWindow({
               name: `cerious-${item.id}`,
               url: desktopWindowUrl(item),
@@ -10655,8 +10694,8 @@ export function OpenFinDesktopLauncher() {
               minWidth: 320,
               minHeight: 220,
               frame: true,
-              autoShow: true,
-              state: normalizeDesktopWindowState(item.desktopState),
+              autoShow: desktopState !== 'minimized',
+              state: desktopState,
               saveWindowState: false,
               showTaskbarIcon: true,
               waitForPageLoad: false,
@@ -10668,7 +10707,7 @@ export function OpenFinDesktopLauncher() {
                 authority: 'server',
               },
             })
-            await showOpenFinWindow(createdWindow, bounds, normalizeDesktopWindowState(item.desktopState))
+            await showOpenFinWindow(createdWindow, bounds, desktopState)
             opened += 1
             setStatus(`Opened toolbar and ${opened}/${windows.length} Cerious Desktop windows.`)
             await new Promise(resolve => window.setTimeout(resolve, 75))

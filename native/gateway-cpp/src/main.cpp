@@ -655,6 +655,93 @@ std::string lower_ascii(std::string value) {
     return value;
 }
 
+std::string workspace_file_component(std::string value) {
+    value = lower_ascii(trim_copy(std::move(value)));
+    std::string out;
+    out.reserve(value.size());
+    bool previous_dash = false;
+    for (const auto ch : value) {
+        const bool ok = std::isalnum(static_cast<unsigned char>(ch)) != 0;
+        if (ok) {
+            out.push_back(ch);
+            previous_dash = false;
+        } else if (!previous_dash) {
+            out.push_back('-');
+            previous_dash = true;
+        }
+    }
+    while (!out.empty() && out.front() == '-') out.erase(out.begin());
+    while (!out.empty() && out.back() == '-') out.pop_back();
+    return out.empty() ? "workspace" : out;
+}
+
+std::string workspace_file_key(const std::string& workspace_json) {
+    const auto operator_name = get_string(workspace_json, "operator", "operator");
+    const auto workspace_name = get_string(workspace_json, "name", "workspace");
+    return workspace_file_component(operator_name) + "__" + workspace_file_component(workspace_name);
+}
+
+std::uint64_t workspace_updated_at_ms(const std::string& json) {
+    const auto workspace = get_json_member(json, "workspace").value_or(json);
+    const auto raw = get_string(workspace, "updatedAt", "0");
+    try {
+        return static_cast<std::uint64_t>(std::stoull(trim_copy(raw)));
+    } catch (...) {
+        return 0;
+    }
+}
+
+std::string unwrap_workspace_json(const std::string& json) {
+    return get_json_member(json, "workspace").value_or(json);
+}
+
+fs::path scoped_workspace_dir(const fs::path& data, const std::string& scope) {
+    auto dir = data / "workspace-store" / "tsturiale";
+    if (scope == "desktop") dir /= "desktop";
+    return dir;
+}
+
+std::vector<std::string> read_workspace_snapshots(const fs::path& workspace_dir) {
+    std::vector<std::pair<std::uint64_t, std::string>> snapshots;
+    std::error_code ec;
+    if (!fs::exists(workspace_dir, ec)) return {};
+    for (const auto& entry : fs::directory_iterator(workspace_dir, ec)) {
+        if (ec || !entry.is_regular_file()) continue;
+        const auto path = entry.path();
+        if (path.extension() != ".json") continue;
+        const auto stem = path.stem().string();
+        const auto text = read_text(path);
+        if (!text) continue;
+        const auto workspace = unwrap_workspace_json(*text);
+        if (!get_json_member(workspace, "windows")) continue;
+        snapshots.emplace_back(workspace_updated_at_ms(workspace), workspace);
+        if (stem == "latest") continue;
+    }
+    std::sort(snapshots.begin(), snapshots.end(), [](const auto& a, const auto& b) {
+        return a.first > b.first;
+    });
+    std::vector<std::string> out;
+    out.reserve(snapshots.size());
+    std::unordered_set<std::string> seen;
+    for (const auto& item : snapshots) {
+        const auto key = workspace_file_key(item.second);
+        if (seen.insert(key).second) out.push_back(item.second);
+    }
+    return out;
+}
+
+std::string workspace_snapshots_json(const fs::path& workspace_dir) {
+    const auto snapshots = read_workspace_snapshots(workspace_dir);
+    std::ostringstream out;
+    out << "{\"ok\":true,\"workspaces\":[";
+    for (std::size_t i = 0; i < snapshots.size(); ++i) {
+        if (i) out << ",";
+        out << snapshots[i];
+    }
+    out << "]}";
+    return out.str();
+}
+
 void replace_all(std::string& value, const std::string& from, const std::string& to) {
     if (from.empty()) return;
     std::size_t pos = 0;
@@ -5257,10 +5344,12 @@ struct Gateway {
             shutdown_requested.store(true);
         });
 
-        server.Get("/api/workspaces/saved", [&](const httplib::Request&, httplib::Response& res) {
-            const auto latest = read_text(data / "workspace-store" / "tsturiale" / "latest.json");
-            if (latest) send_json(res, "{\"ok\":true,\"workspaces\":[" + *latest + "]}");
-            else send_json(res, "{\"ok\":true,\"workspaces\":[]}");
+        server.Get("/api/workspaces/saved", [&](const httplib::Request& req, httplib::Response& res) {
+            const auto requested_scope = req.has_param("scope")
+                ? lower_ascii(trim_copy(req.get_param_value("scope")))
+                : std::string{};
+            const auto scope = requested_scope == "desktop" ? "desktop" : "cloud";
+            send_json(res, workspace_snapshots_json(scoped_workspace_dir(data, scope)));
         });
 
         server.Get("/api/workspaces/recovered", [&](const httplib::Request&, httplib::Response& res) {
@@ -5268,11 +5357,16 @@ struct Gateway {
         });
 
         server.Post("/api/workspaces/save", [&](const httplib::Request& req, httplib::Response& res) {
-            const auto workspace_dir = data / "workspace-store" / "tsturiale";
+            const auto requested_scope = lower_ascii(trim_copy(get_string(req.body, "workspaceScope", get_string(req.body, "scope", "cloud"))));
+            const auto scope = requested_scope == "desktop" ? "desktop" : "cloud";
+            const auto workspace_dir = scoped_workspace_dir(data, scope);
             const auto audit_path = workspace_dir / "native-last-save.json";
             const auto latest_path = workspace_dir / "latest.json";
-            const auto workspace = get_json_member(req.body, "workspace").value_or(req.body);
-            const bool ok = write_text_atomic(audit_path, req.body) && write_text_atomic(latest_path, workspace);
+            const auto workspace = unwrap_workspace_json(req.body);
+            const auto keyed_path = workspace_dir / (workspace_file_key(workspace) + ".json");
+            const bool ok = write_text_atomic(audit_path, req.body)
+                && write_text_atomic(latest_path, workspace)
+                && write_text_atomic(keyed_path, workspace);
             send_json(res, ok ? "{\"ok\":true,\"runtime\":\"cpp\"}" : "{\"ok\":false,\"detail\":\"workspace save failed\"}", ok ? 200 : 500);
         });
 
