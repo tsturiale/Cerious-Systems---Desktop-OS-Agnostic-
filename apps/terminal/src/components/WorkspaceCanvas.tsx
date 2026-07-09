@@ -10022,7 +10022,7 @@ type OpenFinWindowOptions = {
 
 type OpenFinWindowRef = {
   hide?: () => Promise<void>
-  close?: () => Promise<void>
+  close?: (force?: boolean) => Promise<void>
   restore?: () => Promise<void>
   show?: (force?: boolean) => Promise<void>
   showAt?: (left: number, top: number, force?: boolean) => Promise<void>
@@ -10046,6 +10046,12 @@ type OpenFinApi = {
 
 function openFinApi(): OpenFinApi | undefined {
   return (window as unknown as { fin?: OpenFinApi }).fin
+}
+
+function postDesktopShellMessage(type: 'desktop-close' | 'desktop-lock', reason: string): void {
+  const channel = new BroadcastChannel(DESKTOP_WORKSPACE_CHANNEL)
+  channel.postMessage({ type, reason, ts: epochMs() })
+  channel.close()
 }
 
 function isWorkspaceWindowKind(value: unknown): value is WorkspaceWindowKind {
@@ -10290,7 +10296,17 @@ export function WorkspaceDesktopWindow() {
   useEffect(() => {
     const channel = new BroadcastChannel(DESKTOP_WORKSPACE_CHANNEL)
     const handleMessage = async (event: MessageEvent) => {
-      const message = event.data as { type?: string; requestId?: string }
+      const message = event.data as { type?: string; requestId?: string; reason?: string }
+      if (message.type === 'desktop-close') {
+        await closeCurrentDesktopWindow()
+        return
+      }
+      if (message.type === 'desktop-lock') {
+        window.dispatchEvent(new CustomEvent('cerious-auth-lock', {
+          detail: { reason: message.reason || 'Workspace locked from desktop toolbar' },
+        }))
+        return
+      }
       if (message.type !== 'snapshot-request' || !message.requestId) return
       const { bounds, state } = await currentDesktopWindowSnapshot(item)
       channel.postMessage({
@@ -10437,6 +10453,25 @@ async function runOpenFinWindowCommand(command: (() => Promise<void>) | undefine
   }
 }
 
+async function closeCurrentDesktopWindow(): Promise<void> {
+  const currentWindow = openFinApi()?.Window?.getCurrentSync?.()
+  if (currentWindow?.close) {
+    await runOpenFinWindowCommand(() => currentWindow.close?.(true) ?? Promise.resolve(), 850)
+    return
+  }
+  window.close()
+}
+
+async function closeDesktopShell(reason: string): Promise<void> {
+  postDesktopShellMessage('desktop-close', reason)
+  await new Promise(resolve => window.setTimeout(resolve, 200))
+  const app = openFinApi()?.Application?.getCurrentSync?.()
+  if (app?.quit) {
+    await runOpenFinWindowCommand(() => app.quit?.(true) ?? Promise.resolve(), 1500)
+  }
+  await closeCurrentDesktopWindow()
+}
+
 async function showOpenFinWindow(windowRef: unknown, bounds?: Pick<FloatingWindowBounds, 'x' | 'y' | 'w' | 'h'>, state: DesktopWindowState = 'normal') {
   if (!windowRef || typeof windowRef !== 'object') return
   const api = windowRef as OpenFinWindowRef
@@ -10540,9 +10575,7 @@ export function OpenFinDesktopToolbar() {
   }
 
   const lockDesktop = () => {
-    const channel = new BroadcastChannel(DESKTOP_WORKSPACE_CHANNEL)
-    channel.postMessage({ type: 'desktop-lock', reason: 'Workspace locked from desktop toolbar' })
-    channel.close()
+    postDesktopShellMessage('desktop-lock', 'Workspace locked from desktop toolbar')
     setStatus('Locked')
   }
 
@@ -10564,7 +10597,8 @@ export function OpenFinDesktopToolbar() {
     } catch {
       // Browser session logout is best-effort; desktop shell close is handled below.
     }
-    await openFinApi()?.Application?.getCurrentSync?.().quit?.(true)
+    setStatus('Closing desktop UI...')
+    await closeDesktopShell('desktop logout')
   }
 
   const shutdownDesktop = async () => {
@@ -10596,8 +10630,8 @@ export function OpenFinDesktopToolbar() {
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || !payload.ok) throw new Error(String(payload.detail || payload.message || `HTTP ${response.status}`))
-      setStatus('Shutdown sent')
-      await openFinApi()?.Application?.getCurrentSync?.().quit?.(true)
+      setStatus('Shutdown sent; closing desktop UI...')
+      await closeDesktopShell('desktop shutdown')
     } catch (error) {
       setStatus(`Shutdown failed: ${error instanceof Error ? error.message : 'unknown error'}`)
     }
