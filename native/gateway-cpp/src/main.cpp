@@ -701,6 +701,10 @@ fs::path scoped_workspace_dir(const fs::path& data, const std::string& scope) {
     return dir;
 }
 
+fs::path desktop_workspace_dir(const fs::path& data) {
+    return data / "desktop-workspaces" / "tsturiale";
+}
+
 std::vector<std::string> read_workspace_snapshots(const fs::path& workspace_dir) {
     std::vector<std::pair<std::uint64_t, std::string>> snapshots;
     std::error_code ec;
@@ -710,12 +714,12 @@ std::vector<std::string> read_workspace_snapshots(const fs::path& workspace_dir)
         const auto path = entry.path();
         if (path.extension() != ".json") continue;
         const auto stem = path.stem().string();
+        if (stem == "native-last-save" || stem == "latest") continue;
         const auto text = read_text(path);
         if (!text) continue;
         const auto workspace = unwrap_workspace_json(*text);
         if (!get_json_member(workspace, "windows")) continue;
         snapshots.emplace_back(workspace_updated_at_ms(workspace), workspace);
-        if (stem == "latest") continue;
     }
     std::sort(snapshots.begin(), snapshots.end(), [](const auto& a, const auto& b) {
         return a.first > b.first;
@@ -740,6 +744,39 @@ std::string workspace_snapshots_json(const fs::path& workspace_dir) {
     }
     out << "]}";
     return out.str();
+}
+
+constexpr const char* kDefaultDesktopWorkspaceId = "local-workspace";
+
+std::string workspace_id_or_default(const std::string& value, const std::string& fallback = kDefaultDesktopWorkspaceId) {
+    const auto normalized = workspace_file_component(value.empty() ? fallback : value);
+    return normalized.empty() ? workspace_file_component(fallback) : normalized;
+}
+
+std::string desktop_workspace_id_from_json(const std::string& json) {
+    const auto workspace = unwrap_workspace_json(json);
+    const auto explicit_id = get_string(json, "workspaceId", "");
+    if (!explicit_id.empty()) return workspace_id_or_default(explicit_id);
+    return workspace_id_or_default(get_string(workspace, "workspaceId", kDefaultDesktopWorkspaceId));
+}
+
+std::string current_desktop_workspace_json(const fs::path& data, const std::string& workspace_id) {
+    const auto path = desktop_workspace_dir(data) / (workspace_id_or_default(workspace_id) + ".json");
+    if (const auto text = read_text(path)) {
+        const auto workspace = unwrap_workspace_json(*text);
+        if (get_json_member(workspace, "windows")) return "{\"ok\":true,\"workspace\":" + workspace + "}";
+    }
+    return "{\"ok\":true,\"workspace\":null}";
+}
+
+bool save_desktop_workspace_json(const fs::path& data, const std::string& body) {
+    const auto workspace = unwrap_workspace_json(body);
+    if (!get_json_member(workspace, "windows")) return false;
+    const auto dir = desktop_workspace_dir(data);
+    const auto workspace_id = desktop_workspace_id_from_json(body);
+    const auto keyed_path = dir / (workspace_id + ".json");
+    return write_text_atomic(dir / "native-last-save.json", body)
+        && write_text_atomic(keyed_path, workspace);
 }
 
 void replace_all(std::string& value, const std::string& from, const std::string& to) {
@@ -5354,6 +5391,22 @@ struct Gateway {
 
         server.Get("/api/workspaces/recovered", [&](const httplib::Request&, httplib::Response& res) {
             send_json(res, "{\"ok\":true,\"workspaces\":[]}");
+        });
+
+        server.Get("/api/desktop/workspace", [&](const httplib::Request& req, httplib::Response& res) {
+            const auto workspace_id = req.has_param("workspaceId")
+                ? req.get_param_value("workspaceId")
+                : std::string{kDefaultDesktopWorkspaceId};
+            send_json(res, current_desktop_workspace_json(data, workspace_id));
+        });
+
+        server.Get("/api/desktop/workspaces", [&](const httplib::Request&, httplib::Response& res) {
+            send_json(res, workspace_snapshots_json(desktop_workspace_dir(data)));
+        });
+
+        server.Post("/api/desktop/workspace/save", [&](const httplib::Request& req, httplib::Response& res) {
+            const bool ok = save_desktop_workspace_json(data, req.body);
+            send_json(res, ok ? "{\"ok\":true,\"runtime\":\"cpp\"}" : "{\"ok\":false,\"detail\":\"desktop workspace save failed\"}", ok ? 200 : 500);
         });
 
         server.Post("/api/workspaces/save", [&](const httplib::Request& req, httplib::Response& res) {

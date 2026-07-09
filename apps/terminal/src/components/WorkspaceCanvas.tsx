@@ -371,6 +371,7 @@ const WORKSPACE_EDGE_PAN_ZONE = 150
 const WORKSPACE_HOVER_PAN_ZONE = 24
 
 type SavedWorkspace = {
+  workspaceId?: string
   name: string
   operator: string
   windows: WorkspaceWindow[]
@@ -435,6 +436,10 @@ type RecoveredWorkspacesPayload = {
   workspaces?: Array<Partial<SavedWorkspace>>
 }
 
+type DesktopWorkspacePayload = {
+  workspace?: Partial<SavedWorkspace> | null
+}
+
 type WorkspaceBackup = {
   id: string
   backedUpAt: number
@@ -470,9 +475,8 @@ type ProductOption = {
 const STORAGE_KEY = 'cerious.workspace.desktop.v1'
 const WORKSPACE_NAMES_KEY = 'cerious.workspace.names.v1'
 const DEFAULT_WORKSPACE_KEY = 'cerious.workspace.default.v1'
-const DESKTOP_STORAGE_KEY = 'cerious.openfin.workspace.active.v1'
-const DESKTOP_WORKSPACE_NAMES_KEY = 'cerious.openfin.workspace.names.v1'
-const DESKTOP_DEFAULT_WORKSPACE_KEY = 'cerious.openfin.workspace.default.v1'
+const DESKTOP_WORKSPACE_ID = 'local-workspace'
+const CLOUD_WORKSPACE_ID = 'cloud-workspace'
 const WORKSPACE_BACKUPS_KEY = 'cerious.workspace.backups.v1'
 const WORKSPACE_SESSION_TOKEN_KEY = 'cerious.workspace.sessionToken.v1'
 const TED_S_DEFAULT_RECOVERY_FILE = 'leveldb-07-ted-s.json'
@@ -904,6 +908,7 @@ function normalizeWorkspace(raw: Partial<SavedWorkspace> | null | undefined): Sa
       : {}),
   }))
   return {
+    workspaceId: typeof raw.workspaceId === 'string' && raw.workspaceId.trim() ? raw.workspaceId.trim() : undefined,
     name: String(raw.name || 'Cerious CME Desk'),
     operator: String(raw.operator || DEFAULT_OPERATOR),
     windows,
@@ -1042,13 +1047,35 @@ function ceriousFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise
 
 async function saveWorkspaceServerSnapshot(next: SavedWorkspace, reason: string, workspaceScope: 'cloud' | 'desktop' = 'cloud'): Promise<boolean> {
   try {
+    const workspaceId = workspaceScope === 'desktop' ? DESKTOP_WORKSPACE_ID : CLOUD_WORKSPACE_ID
     const response = await ceriousFetch('/api/workspaces/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        workspace: next,
+        workspace: { ...next, workspaceId },
         reason,
         workspaceScope,
+        workspaceId,
+        sessionToken: workspaceSessionToken(),
+      }),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+async function saveDesktopWorkspaceServerSnapshot(next: SavedWorkspace, reason: string): Promise<boolean> {
+  try {
+    const desktopWorkspace = { ...next, workspaceId: DESKTOP_WORKSPACE_ID }
+    const response = await ceriousFetch('/api/desktop/workspace/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspace: desktopWorkspace,
+        reason,
+        workspaceId: DESKTOP_WORKSPACE_ID,
+        workspaceScope: 'desktop',
         sessionToken: workspaceSessionToken(),
       }),
     })
@@ -10044,6 +10071,7 @@ function desktopToolbarUrl(): string {
 
 function fallbackDesktopWorkspace(): SavedWorkspace {
   return {
+    workspaceId: DESKTOP_WORKSPACE_ID,
     name: 'Cerious Desktop',
     operator: DEFAULT_OPERATOR,
     windows: [],
@@ -10055,99 +10083,27 @@ function fallbackDesktopWorkspace(): SavedWorkspace {
   }
 }
 
-function desktopWindowCount(workspace: SavedWorkspace | null | undefined): number {
-  return workspace?.windows.filter(item => !isRemovedWindowKind(item.kind)).length ?? 0
-}
-
-function isTedDesktopWorkspace(workspace: SavedWorkspace): boolean {
-  const key = workspaceKey(workspace.operator, workspace.name)
-  return [
-    workspaceKey(DEFAULT_OPERATOR, 'Ted S'),
-    workspaceKey(DEFAULT_OPERATOR, 'TEDx'),
-    workspaceKey(DEFAULT_OPERATOR, 'Ted X'),
-  ].includes(key)
-}
-
-function selectDesktopWorkspace(candidates: SavedWorkspace[]): SavedWorkspace | null {
-  const latestByKey = Array.from(candidates
-    .filter(item => desktopWindowCount(item) > 0)
-    .reduce((map, item) => {
-      const key = workspaceKey(item.operator, item.name)
-      const existing = map.get(key)
-      if (!existing || item.updatedAt > existing.updatedAt) map.set(key, item)
-      return map
-    }, new Map<string, SavedWorkspace>())
-    .values())
-
-  const latestTedS = latestByKey
-    .filter(isTedDesktopWorkspace)
-    .sort((a, b) => b.updatedAt - a.updatedAt)[0]
-
-  return latestTedS ?? latestByKey.sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null
-}
-
-function cacheDesktopWorkspace(workspace: SavedWorkspace): void {
-  window.localStorage.setItem(DESKTOP_STORAGE_KEY, JSON.stringify(workspace))
-  window.localStorage.setItem(DESKTOP_DEFAULT_WORKSPACE_KEY, JSON.stringify(workspace))
-  const saved = upsertSavedWorkspace(loadDesktopSavedWorkspaces(), workspace)
-  window.localStorage.setItem(DESKTOP_WORKSPACE_NAMES_KEY, JSON.stringify(saved))
-}
-
-function clearDesktopWorkspaceCache(): void {
-  window.localStorage.removeItem(DESKTOP_STORAGE_KEY)
-  window.localStorage.removeItem(DESKTOP_DEFAULT_WORKSPACE_KEY)
-  window.localStorage.removeItem(DESKTOP_WORKSPACE_NAMES_KEY)
-}
-
-function loadDesktopActiveWorkspace(): SavedWorkspace | null {
-  try {
-    const activeRaw = window.localStorage.getItem(DESKTOP_STORAGE_KEY)
-    if (activeRaw) {
-      const active = normalizeWorkspace(JSON.parse(activeRaw) as Partial<SavedWorkspace>)
-      if (active) return active
-    }
-    const defaultRaw = window.localStorage.getItem(DESKTOP_DEFAULT_WORKSPACE_KEY)
-    if (!defaultRaw) return null
-    return normalizeWorkspace(JSON.parse(defaultRaw) as Partial<SavedWorkspace>)
-  } catch {
-    return null
-  }
-}
-
-function loadDesktopSavedWorkspaces(): SavedWorkspace[] {
-  try {
-    const raw = window.localStorage.getItem(DESKTOP_WORKSPACE_NAMES_KEY)
-    const parsed = raw ? JSON.parse(raw) as Array<Partial<SavedWorkspace>> : []
-    const indexed = Array.isArray(parsed)
-      ? parsed
-          .map(normalizeWorkspace)
-          .filter((item): item is SavedWorkspace => !!item)
-      : []
-    const active = loadDesktopActiveWorkspace()
-    return active ? upsertSavedWorkspace(indexed, active) : indexed.sort((a, b) => b.updatedAt - a.updatedAt)
-  } catch {
-    return []
-  }
+function withDesktopWorkspaceId(workspace: SavedWorkspace): SavedWorkspace {
+  return { ...workspace, workspaceId: DESKTOP_WORKSPACE_ID }
 }
 
 function loadDesktopWorkspaceWindows(): SavedWorkspace {
-  const workspace = loadDesktopActiveWorkspace()
-  if (workspace && desktopWindowCount(workspace) > 1) return workspace
   return fallbackDesktopWorkspace()
 }
 
 async function loadDesktopWorkspaceWindowsAsync(): Promise<SavedWorkspace> {
-  const serverSaved = await fetchServerSavedWorkspaces('desktop')
-  const serverWorkspace = selectDesktopWorkspace(serverSaved)
-  if (serverWorkspace) {
-    cacheDesktopWorkspace(serverWorkspace)
-    return serverWorkspace
+  try {
+    const params = new URLSearchParams({ workspaceId: DESKTOP_WORKSPACE_ID })
+    const response = await ceriousFetch(`/api/desktop/workspace?${params.toString()}`, { cache: 'no-store' })
+    if (response.ok) {
+      const payload = await response.json() as DesktopWorkspacePayload
+      const workspace = normalizeWorkspace(payload.workspace)
+      if (workspace) return withDesktopWorkspaceId(workspace)
+    }
+  } catch {
+    // Desktop launch falls back to toolbar-only when no desktop workspace file exists.
   }
-
-  const fallback = fallbackDesktopWorkspace()
-  clearDesktopWorkspaceCache()
-  cacheDesktopWorkspace(fallback)
-  return fallback
+  return fallbackDesktopWorkspace()
 }
 
 type DesktopLaunchWindow = {
@@ -10296,6 +10252,42 @@ export function WorkspaceDesktopWindow() {
   useDesktopWindowDocumentTitle(item)
 
   useEffect(() => {
+    let cancelled = false
+    const hydrateDesktopWindow = async () => {
+      const workspace = await loadDesktopWorkspaceWindowsAsync()
+      if (cancelled) return
+      const params = new URLSearchParams(window.location.search)
+      const id = params.get('window_id') || item.id
+      const savedItem = workspace.windows.find(windowItem => windowItem.id === id)
+      if (!savedItem) return
+      const provider = normalizeProviderKey((params.get('provider') ?? savedItem.provider ?? workspace.selectedProvider) as ProviderKey | undefined)
+      const symbol = params.get('symbol') ?? savedItem.symbol ?? workspace.selectedSymbol ?? defaultSymbolForWindowKind(savedItem.kind, 'ES')
+      const nextItem: WorkspaceWindow = {
+        ...savedItem,
+        provider,
+        symbol,
+        collapsed: false,
+        x: 0,
+        y: 0,
+        w: window.innerWidth,
+        h: window.innerHeight,
+      }
+      setItem(nextItem)
+      setMarketRows(workspace.rows ?? [])
+      setAlerts(workspace.alerts ?? [])
+      setSelectedProvider(provider)
+      setSelectedSymbol(symbol)
+      setProvider(provider)
+    }
+    hydrateDesktopWindow().catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  // Load the saved desktop window once from the desktop workspace file.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
     const channel = new BroadcastChannel(DESKTOP_WORKSPACE_CHANNEL)
     const handleMessage = async (event: MessageEvent) => {
       const message = event.data as { type?: string; requestId?: string }
@@ -10402,13 +10394,13 @@ function collectDesktopWindowSnapshots(timeoutMs = 2400): Promise<WorkspaceWindo
 }
 
 function mergeDesktopSnapshots(base: SavedWorkspace, snapshots: WorkspaceWindow[]): SavedWorkspace {
-  return {
+  return withDesktopWorkspaceId({
     ...base,
     windows: snapshots.sort((a, b) => a.z - b.z),
     algoLibrary: loadAlgoLibrary(),
     algoManager: loadAlgoManagerWorkspaceState(),
     updatedAt: epochMs(),
-  }
+  })
 }
 
 function defaultDesktopWindowForKind(kind: WorkspaceWindowKind, current: SavedWorkspace): WorkspaceWindow {
@@ -10496,9 +10488,8 @@ export function OpenFinDesktopToolbar() {
       ...mergeDesktopSnapshots(workspace, snapshots),
       desktopToolbarBounds: currentDesktopWindowBounds(),
     }
-    cacheDesktopWorkspace(next)
     setWorkspace(next)
-    const serverSaved = await saveWorkspaceServerSnapshot(next, reason, 'desktop')
+    const serverSaved = await saveDesktopWorkspaceServerSnapshot(next, reason)
     return { snapshots, serverSaved }
   }
 
