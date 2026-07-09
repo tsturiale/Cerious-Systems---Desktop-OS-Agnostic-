@@ -58,12 +58,30 @@ New-Item -ItemType Directory -Force -Path $Build | Out-Null
 $cache = Join-Path $Build "CMakeCache.txt"
 if (Test-Path -LiteralPath $cache) {
   $cacheText = Get-Content -Raw -Path $cache
-  if ($cacheText -match "C:/BuildTools|C:\\BuildTools") {
+  $mismatchedGenerator = $cacheText -notmatch "CMAKE_GENERATOR:INTERNAL=Ninja"
+  $missingVcpkgToolchain = $cacheText -notmatch [regex]::Escape($Toolchain.Replace('\', '/')) -and $cacheText -notmatch [regex]::Escape($Toolchain)
+  if ($cacheText -match "C:/BuildTools|C:\\BuildTools" -or $mismatchedGenerator -or $missingVcpkgToolchain) {
     Remove-Item -LiteralPath $cache -Force
     $cmakeFiles = Join-Path $Build "CMakeFiles"
     if (Test-Path -LiteralPath $cmakeFiles) {
       Remove-Item -LiteralPath $cmakeFiles -Recurse -Force
     }
+    $deps = Join-Path $Build "_deps"
+    if (Test-Path -LiteralPath $deps) {
+      Remove-Item -LiteralPath $deps -Recurse -Force
+    }
+  }
+}
+$deps = Join-Path $Build "_deps"
+if (Test-Path -LiteralPath $deps) {
+  $staleSubbuild = Get-ChildItem -Path $deps -Recurse -Filter CMakeCache.txt -ErrorAction SilentlyContinue |
+    Where-Object {
+      $subCacheText = Get-Content -Raw -Path $_.FullName
+      $subCacheText -notmatch "CMAKE_GENERATOR:INTERNAL=Ninja"
+    } |
+    Select-Object -First 1
+  if ($staleSubbuild) {
+    Remove-Item -LiteralPath $deps -Recurse -Force
   }
 }
 @"
