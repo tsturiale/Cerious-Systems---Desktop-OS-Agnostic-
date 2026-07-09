@@ -8818,21 +8818,29 @@ function CeriousRelativeSpreadSvg({ stat }: { stat: CeriousSpreadStat }) {
   const bottom = 28
   const plotWidth = width - left - right
   const plotHeight = height - top - bottom
-  const points = (stat.bars ?? []).slice(-90).filter(row => Number.isFinite(row.close))
+  const points = (stat.bars ?? [])
+    .map(row => {
+      const close = finiteOptional(row.close)
+      const timestamp = finiteOptional(row.timestamp)
+      return close !== undefined && timestamp !== undefined ? { close, timestamp } : null
+    })
+    .filter((row): row is { close: number; timestamp: number } => row !== null)
+    .slice(-90)
   if (points.length < 2) return <div className="p-4 text-[11px] text-muted">Need more bars for {stat.label}.</div>
-  const closes = points.map(row => Number(row.close))
+  const closes = points.map(row => row.close)
   const last = points[points.length - 1]
-  const liveLast = finiteOptional(stat.lastTraded) ?? finiteOptional(stat.spread) ?? Number(last.close)
-  const meanValue = Number(stat.mean)
-  const upper = meanValue + 2 * Number(stat.atr)
-  const lower = meanValue - 2 * Number(stat.atr)
-  const values = [...closes, liveLast, meanValue, upper, lower].filter(Number.isFinite)
+  const liveLast = finiteOptional(stat.lastTraded) ?? finiteOptional(stat.spread) ?? last.close
+  const meanValue = finiteOptional(stat.mean)
+  const atrValue = finiteOptional(stat.atr)
+  const upper = meanValue !== undefined && atrValue !== undefined ? meanValue + 2 * atrValue : undefined
+  const lower = meanValue !== undefined && atrValue !== undefined ? meanValue - 2 * atrValue : undefined
+  const values = [...closes, liveLast, meanValue, upper, lower].filter((value): value is number => value !== undefined && Number.isFinite(value))
   const min = Math.min(...values)
   const max = Math.max(...values)
   const span = max - min || 1
   const x = (index: number) => left + (points.length <= 1 ? 0 : (index / (points.length - 1)) * plotWidth)
   const y = (value: number) => top + ((max - value) / span) * plotHeight
-  const line = points.map((row, index) => `${x(index).toFixed(1)},${y(Number(row.close)).toFixed(1)}`).join(' ')
+  const line = points.map((row, index) => `${x(index).toFixed(1)},${y(row.close).toFixed(1)}`).join(' ')
   const firstDate = new Date(points[0].timestamp).toLocaleDateString()
   const lastDate = new Date(last.timestamp).toLocaleDateString()
   const horizontal = (value: number, color: string, label: string, dash: string) => {
@@ -8849,11 +8857,11 @@ function CeriousRelativeSpreadSvg({ stat }: { stat: CeriousSpreadStat }) {
       <rect x={0} y={0} width={width} height={height} fill="rgba(8,13,20,.18)" />
       <line x1={left} y1={top} x2={left} y2={top + plotHeight} stroke="rgba(142,160,180,.32)" />
       <line x1={left} y1={top + plotHeight} x2={left + plotWidth} y2={top + plotHeight} stroke="rgba(142,160,180,.32)" />
-      {horizontal(upper, 'rgba(255,204,102,.72)', '+2 ATR', '4 4')}
-      {horizontal(meanValue, 'rgba(142,160,180,.72)', 'Mean', '3 3')}
-      {horizontal(lower, 'rgba(77,163,255,.72)', '-2 ATR', '4 4')}
+      {upper !== undefined ? horizontal(upper, 'rgba(255,204,102,.72)', '+2 ATR', '4 4') : null}
+      {meanValue !== undefined ? horizontal(meanValue, 'rgba(142,160,180,.72)', 'Mean', '3 3') : null}
+      {lower !== undefined ? horizontal(lower, 'rgba(77,163,255,.72)', '-2 ATR', '4 4') : null}
       <polyline points={line} fill="none" stroke="#7dd3fc" strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={x(points.length - 1)} cy={y(Number(last.close))} r={3.5} fill="#e6f1ff" />
+      <circle cx={x(points.length - 1)} cy={y(last.close)} r={3.5} fill="#e6f1ff" />
       <circle cx={x(points.length - 1)} cy={y(liveLast)} r={4.5} fill="#facc15" stroke="#05070b" strokeWidth={1.2} />
       <text x={left} y={height - 8} fill="rgba(230,241,255,.62)" fontSize={10}>{firstDate}</text>
       <text x={left + plotWidth} y={height - 8} textAnchor="end" fill="rgba(230,241,255,.62)" fontSize={10}>{lastDate}</text>
