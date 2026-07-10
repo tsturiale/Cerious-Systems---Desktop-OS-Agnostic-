@@ -10218,29 +10218,33 @@ function usableDesktopBounds(bounds: FloatingWindowBounds | null | undefined): b
     && Math.abs(bounds.y) < 100_000
 }
 
+async function desktopCallWithTimeout<T>(call: Promise<T> | undefined, fallback: T, timeoutMs = 700): Promise<T> {
+  if (!call) return fallback
+  try {
+    return await Promise.race([
+      call,
+      new Promise<T>(resolve => window.setTimeout(() => resolve(fallback), timeoutMs)),
+    ])
+  } catch {
+    return fallback
+  }
+}
+
 async function currentDesktopWindowSnapshot(previous: WorkspaceWindow): Promise<{ bounds: FloatingWindowBounds; state: DesktopWindowState }> {
   const currentWindow = openFinApi()?.Window?.getCurrentSync?.()
   const fallbackBounds = readDesktopBounds(previous)
   let state = normalizeDesktopWindowState(previous.desktopState)
-  try {
-    if (currentWindow?.getState) state = normalizeDesktopWindowState(await currentWindow.getState())
-  } catch {
-    state = normalizeDesktopWindowState(previous.desktopState)
-  }
+  state = normalizeDesktopWindowState(await desktopCallWithTimeout(currentWindow?.getState?.(), state, 500))
 
   let bounds: FloatingWindowBounds | null = null
-  try {
-    const openFinBounds = await currentWindow?.getBounds?.()
-    if (openFinBounds) {
-      bounds = {
-        x: Math.round(Number(openFinBounds.left ?? fallbackBounds.x)),
-        y: Math.round(Number(openFinBounds.top ?? fallbackBounds.y)),
-        w: Math.round(Number(openFinBounds.width ?? fallbackBounds.w)),
-        h: Math.round(Number(openFinBounds.height ?? fallbackBounds.h)),
-      }
+  const openFinBounds = await desktopCallWithTimeout(currentWindow?.getBounds?.(), null, 700)
+  if (openFinBounds) {
+    bounds = {
+      x: Math.round(Number(openFinBounds.left ?? fallbackBounds.x)),
+      y: Math.round(Number(openFinBounds.top ?? fallbackBounds.y)),
+      w: Math.round(Number(openFinBounds.width ?? fallbackBounds.w)),
+      h: Math.round(Number(openFinBounds.height ?? fallbackBounds.h)),
     }
-  } catch {
-    bounds = null
   }
 
   if (!usableDesktopBounds(bounds) && state !== 'minimized') bounds = currentDesktopWindowBounds()
@@ -10383,7 +10387,7 @@ export function WorkspaceDesktopWindow() {
   )
 }
 
-function collectDesktopWindowSnapshots(timeoutMs = 2400): Promise<WorkspaceWindow[]> {
+function collectDesktopWindowSnapshots(timeoutMs = 6000): Promise<WorkspaceWindow[]> {
   return new Promise(resolve => {
     const channel = new BroadcastChannel(DESKTOP_WORKSPACE_CHANNEL)
     const requestId = `snapshot-${epochMs()}-${Math.random().toString(36).slice(2)}`
